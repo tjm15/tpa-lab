@@ -19,32 +19,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from tqdm import tqdm
 
-# --- Google GenAI SDK (Gemini 2.5) deps (for --synth) ---
-_GENAI_READY = False
-_TENACITY_READY = False
+# Optional Gemini (only needed for --synth)
+_GEMINI_READY = False
 try:
-    from google import genai
-    from google.genai import types
-    _GENAI_READY = True
+    import google.generativeai as genai
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    _GEMINI_READY = True
 except Exception:
     pass
 
-# Tenacity is optional; if missing and --synth isn't used, we shouldn't crash
-try:
-    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-    _TENACITY_READY = True
-except Exception:
-    # Define no-op fallbacks so decorators don't explode at import time
-    def retry(*args, **kwargs):
-        def _wrap(fn): return fn
-        return _wrap
-    def stop_after_attempt(*args, **kwargs): return None
-    def wait_exponential(*args, **kwargs): return None
-    def retry_if_exception_type(*args, **kwargs): return lambda e: True
-
 # ========================= Defaults / Config =========================
-# Local model (exact tag). You can override via OLLAMA_MODEL.
-MODEL_DEFAULT = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")  # your 20B MXFP4 tag
+# Use an exact local model tag (your 20B MXFP4 build). You can override via OLLAMA_MODEL env.
+MODEL_DEFAULT = os.getenv("OLLAMA_MODEL", "gpt-oss:20b")
 
 INDEX_WINDOW_PAGES = int(os.getenv("TPA_INDEX_WINDOW_PAGES", "16"))
 GAP_BLOCK_PAGES    = int(os.getenv("TPA_GAP_BLOCK_PAGES", "6"))
@@ -53,14 +39,16 @@ INDEX_MAX_CHARS    = int(os.getenv("TPA_INDEX_MAX_CHARS", "20000"))
 # Keep worker count modest to avoid head-of-line blocking
 DEFAULT_WORKERS = min(4, os.cpu_count() or 4)
 
-# MXFP4-tuned defaults for ~32 GB VRAM (adjust via env at run time)
+# MXFP4-tuned defaults for a 20B model on ~32GB VRAM.
+# NOTE: Many runtimes cap context length; override at run-time with TPA_NUM_CTX if needed.
 LLM_OPTIONS_DEFAULT = {
     "temperature": 0.0,
     "top_p": 1.0,
     "repeat_penalty": 1.05,
-    # If your runtime caps context, set TPA_NUM_CTX to e.g. 16384 or 32768
+    # Long default; if your server caps ctx lower, set TPA_NUM_CTX to e.g. 16384 or 32768.
     "num_ctx": int(os.getenv("TPA_NUM_CTX", "196608")),
     "num_thread": os.cpu_count() or 8,
+    # MXFP4 + Blackwell likes bigger batches; tune with TPA_NUM_BATCH if you see under-utilisation.
     "num_batch": int(os.getenv("TPA_NUM_BATCH", "2304")),
 }
 
@@ -408,7 +396,8 @@ def chat_ollama(messages: List[Dict], model: Optional[str] = None,
     if options:
         opts.update(options)
     if json_mode:
-        opts["format"] = "json"  # enables JSON grammar for many Ollama models
+        # enables JSON grammar in many Ollama models
+        opts["format"] = "json"
 
     system_text = "\n".join(m["content"] for m in messages if m.get("role") == "system")
     user_text   = "\n\n".join(m["content"] for m in messages if m.get("role") != "system")
@@ -484,7 +473,8 @@ def build_recall_index_prompt(pages: List[str]) -> str:
     doc_text = [f"<<<PAGE {i}>>>\n{t}" for i, t in enumerate(pages, start=1)]
     joined = "\n".join(doc_text)
     while len(joined) > INDEX_MAX_CHARS and len(doc_text) > 4:
-        doc_text.pop(); joined = "\n".join(doc_text)
+        doc_text.pop()
+        joined = "\n".join(doc_text)
     return (
         "TASK: Build a HIGH-RECALL index of *policies* in this document.\n\n"
         "RETURN JSON ONLY with:\n"
@@ -501,7 +491,8 @@ def build_recall_index_prompt(pages: List[str]) -> str:
 
 # ========================= Index & Sweep (optional LLM) ================
 def merge_coverage_segments(segments: List[Dict]) -> List[Dict]:
-    if not segments: return []
+    if not segments:
+        return []
     segs = sorted(segments, key=lambda s: (int(s["from_page"]), int(s["to_page"])))
     merged = [segs[0]]
     for s in segs[1:]:
@@ -519,7 +510,9 @@ def index_policies_recall(pages: List[str], model: str, base_url: str, json_mode
         model=model, base_url=base_url, json_mode=json_mode
     )
     data = to_json(resp, context_label="index_policies_recall")
-    data.setdefault("policies", []); data.setdefault("coverage", []); data.setdefault("unassigned_headings", [])
+    data.setdefault("policies", [])
+    data.setdefault("coverage", [])
+    data.setdefault("unassigned_headings", [])
     return data
 
 def gap_blocks(coverage: List[Dict], total_pages: int, block_size: int = GAP_BLOCK_PAGES) -> List[Dict]:
@@ -530,7 +523,8 @@ def gap_blocks(coverage: List[Dict], total_pages: int, block_size: int = GAP_BLO
                 from_p = max(1, int(seg["from_page"]))
                 if from_p <= p <= int(seg["to_page"]):
                     labels[p] = "policy"
-    blocks = []; start = None
+    blocks = []
+    start = None
     for p in range(1, total_pages + 1):
         if labels[p] == "non_policy" and start is None:
             start = p
@@ -568,21 +562,25 @@ def sweep_gap_for_policies(pages: List[str], start_p: int, end_p: int, model: st
             return []
         mid = (start_p + end_p) // 2
         left = sweep_gap_for_policies(pages, start_p, mid, model, base_url, json_mode=json_mode)
-        right = sweep_gap_for_policies(pages, mid+1, end_p, model, base_url, json_mode=json_mode)
+        right = sweep_gap_for_policies(pages, mid + 1, end_p, model, base_url, json_mode=json_mode)
         return left + right
 
 # ========================= Extraction ==================================
 def slice_pages(pages: List[str], pstart: int, pend: int) -> str:
-    pstart = max(1, pstart); pend = min(len(pages), pend)
+    pstart = max(1, pstart)
+    pend = min(len(pages), pend)
     return "\n".join([f"<<<PAGE {i}>>>\n{pages[i-1]}" for i in range(pstart, pend + 1)])
 
 def _is_meaningful_page(txt: str) -> bool:
     return len((txt or "").strip()) >= 150
 
-def _tighten_span(pages: List[str], pstart: int, pend: int) -> Tuple[int,int]:
-    pstart = max(1, pstart); pend = min(len(pages), pend)
-    while pstart < pend and not _is_meaningful_page(pages[pstart-1]): pstart += 1
-    while pend > pstart and not _is_meaningful_page(pages[pend-1]): pend -= 1
+def _tighten_span(pages: List[str], pstart: int, pend: int) -> Tuple[int, int]:
+    pstart = max(1, pstart)
+    pend = min(len(pages), pend)
+    while pstart < pend and not _is_meaningful_page(pages[pstart - 1]):
+        pstart += 1
+    while pend > pstart and not _is_meaningful_page(pages[pend - 1]):
+        pend -= 1
     return pstart, pend
 
 def extract_policy(doc_id: str, pages: List[str], pol: Dict, model: str, base_url: str) -> Dict:
@@ -622,7 +620,7 @@ def extract_policy(doc_id: str, pages: List[str], pol: Dict, model: str, base_ur
     obj = to_json(resp, context_label=f"extract_policy p{pstart}-{pend}")
 
     if obj.get("skip") is True:
-        obj.setdefault("validation_notes", []).append(obj.get("reason","skip"))
+        obj.setdefault("validation_notes", []).append(obj.get("reason", "skip"))
         obj.setdefault("confidence", "low")
         obj.setdefault("doc_id", doc_id)
         return obj
@@ -633,7 +631,7 @@ def extract_policy(doc_id: str, pages: List[str], pol: Dict, model: str, base_ur
     obj.setdefault("policy_id", (pol.get("policy_id_guess", "") or ""))
     obj.setdefault("policy_title", (pol.get("policy_title_guess", "") or ""))
 
-    # Grounding check: keep only quotes found verbatim in span
+    # Ground quotes: keep only verbatim matches in span
     span_lower = span_text.lower()
     good_quotes = []
     for q in obj.get("evidence_quotes", []) or []:
@@ -644,6 +642,7 @@ def extract_policy(doc_id: str, pages: List[str], pol: Dict, model: str, base_ur
     if not obj["evidence_quotes"]:
         obj.setdefault("validation_notes", []).append("No verifiable quotes in span")
         obj["confidence"] = "low"
+
     return obj
 
 # ========================= Streaming JSONL write =======================
@@ -666,7 +665,8 @@ def process_pdf(pdf_path: str, out_dir: str, model: str, base_url: str,
     if needs_ocr(raw_pages):
         maybe = ocr_pdf_if_needed(pdf_path)
         pages = pdf_to_pages(maybe) if maybe else raw_pages
-        if maybe: log.info(f"[ocr] Performed OCR for {pathlib.Path(pdf_path).name}")
+        if maybe:
+            log.info(f"[ocr] Performed OCR for {pathlib.Path(pdf_path).name}")
     else:
         pages = raw_pages
     if not any(pages) or all(len(p.strip()) < 50 for p in pages):
@@ -707,7 +707,8 @@ def process_pdf(pdf_path: str, out_dir: str, model: str, base_url: str,
     policies = list(dedup.values())
 
     out_path = os.path.join(out_dir, f"{doc_id}.jsonl")
-    ok = 0; total = 0
+    ok = 0
+    total = 0
 
     iterator = enumerate(policies, start=1)
     if show_inner_pb and len(policies) > 0:
@@ -744,7 +745,7 @@ def process_pdf(pdf_path: str, out_dir: str, model: str, base_url: str,
                 append_jsonl(out_path, {"doc_id": doc_id, "error": str(e), "policy_span": pol})
     return out_path, ok, total
 
-# ========================= Synthesis (Gemini 2.5 via google-genai) =====
+# ========================= Synthesis (Gemini 2.5) ======================
 SYNTHESIS_PROMPT = """You are a UK planning officer. Draft a structured report section based ONLY on the provided structured data and quotes.
 
 Rules:
@@ -759,57 +760,6 @@ Return Markdown with these headings:
 4. Risks & Uncertainties (list)
 5. Recommendation (approve/refuse/conditions) with 1–2 reasons
 """
-
-def _require_genai():
-    if not _GENAI_READY:
-        raise SystemExit("GenAI deps missing. Install: pip install google-genai tenacity")
-
-def _build_genai_client(use_vertex: bool = False, project: Optional[str] = None, location: Optional[str] = None):
-    """
-    Build a google-genai client for either the Developer API or Vertex AI.
-    Prefers env vars per official docs.
-    """
-    _require_genai()
-    # Vertex AI path (env or flag)
-    env_vertex = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true", "yes")
-    if use_vertex or env_vertex:
-        proj = project or os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("PROJECT_ID")
-        loc  = location or os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
-        if not proj:
-            raise SystemExit("Set GOOGLE_CLOUD_PROJECT for Vertex AI.")
-        return genai.Client(vertexai=True, project=proj, location=loc)
-
-    # Developer API path
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise SystemExit("Set GOOGLE_API_KEY (or GEMINI_API_KEY) for --synth.")
-    return genai.Client(api_key=api_key)
-
-if _GENAI_READY:
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8),
-           retry=retry_if_exception_type(Exception))
-    def genai_synthesise(report_inputs, model_id: str, client: "genai.Client", temp: float = 0.2, max_tokens: int = 2200) -> str:
-        contents = [
-            SYNTHESIS_PROMPT,
-            "SITE CONTEXT:\n" + (report_inputs.get("site_context") or "N/A"),
-            "POLICIES (structured JSON):\n" + json.dumps(report_inputs.get("policies", [])[:60], ensure_ascii=False),
-            "EVIDENCE QUOTES (verbatim with pages):\n" + json.dumps(report_inputs.get("quotes", [])[:200], ensure_ascii=False),
-            "Draft the report now, following the rules."
-        ]
-        resp = client.models.generate_content(
-            model=model_id,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                temperature=temp,
-                top_p=0.9,
-                max_output_tokens=max_tokens,
-            ),
-        )
-        return (resp.text or "").strip()
-else:
-    # If GenAI SDK isn't available, only fail when synthesis is actually requested
-    def genai_synthesise(*args, **kwargs):
-        raise SystemExit("GenAI deps missing. Install: pip install google-genai tenacity")
 
 def build_report_bundle(doc_id: str, jsonl_path: str) -> dict:
     items = []
@@ -831,19 +781,53 @@ def build_report_bundle(doc_id: str, jsonl_path: str) -> dict:
                 quotes.append({"doc_id": doc_id, "page": q.get("page"), "quote": q.get("quote", "")[:160]})
     return {"doc_id": doc_id, "policies": policies, "quotes": quotes}
 
-def synth_for_jsonl(jsonl_path: str, out_dir: str, site_context: str, tier: str = "draft",
-                    explicit_model: Optional[str] = None,
-                    use_vertex: bool = False, project: Optional[str] = None, location: Optional[str] = None) -> str:
+def _require_gemini():
+    if not _GEMINI_READY:
+        raise SystemExit("Gemini deps missing. Install: pip install google-generativeai tenacity")
+
+def _configure_gemini():
+    _require_gemini()
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise SystemExit("Set GEMINI_API_KEY for --synth.")
+    genai.configure(api_key=api_key)
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8),
+       retry=retry_if_exception_type(Exception))
+def gemini_synthesise(report_inputs, model_id: str, temp: float = 0.2, max_tokens: int = 2200) -> str:
+    _configure_gemini()
+    content = [
+        {"role": "user", "parts": [
+            {"text": SYNTHESIS_PROMPT},
+            {"text": "SITE CONTEXT:\n" + (report_inputs.get("site_context") or "N/A")},
+            {"text": "POLICIES (structured JSON):\n" + json.dumps(report_inputs.get("policies", [])[:60], ensure_ascii=False)},
+            {"text": "EVIDENCE QUOTES (verbatim with pages):\n" + json.dumps(report_inputs.get("quotes", [])[:200], ensure_ascii=False)},
+            {"text": "Draft the report now, following the rules."}
+        ]}
+    ]
+    model = genai.GenerativeModel(model_id)
+    resp = model.generate_content(
+        content,
+        generation_config={
+            "temperature": temp,
+            "top_p": 0.9,
+            "max_output_tokens": max_tokens
+        }
+    )
+    return (resp.text or "").strip()
+
+def synth_for_jsonl(jsonl_path: str, out_dir: str, site_context: str, tier: str = "draft", explicit_model: Optional[str] = None) -> str:
     doc_id = pathlib.Path(jsonl_path).stem
     bundle = build_report_bundle(doc_id, jsonl_path)
     bundle["site_context"] = site_context or "N/A"
 
-    model_default = {"draft": "models/gemini-2.5-flash", "pro": "models/gemini-2.5-pro"}.get(tier, "models/gemini-2.5-flash")
+    model_default = {
+        "draft": "models/gemini-2.5-flash",
+        "pro":   "models/gemini-2.5-pro"
+    }.get(tier, "models/gemini-2.5-flash")
     model_id = explicit_model or os.getenv("GEMINI_MODEL", model_default)
 
-    client = _build_genai_client(use_vertex=use_vertex, project=project, location=location)
-    md = genai_synthesise(bundle, model_id=model_id, client=client, temp=0.2, max_tokens=2200)
-
+    md = gemini_synthesise(bundle, model_id=model_id, temp=0.2, max_tokens=2200)
     out_md = os.path.join(out_dir, f"{doc_id}.report.{tier}.md")
     pathlib.Path(out_md).write_text(md, encoding="utf-8")
     log.info(f"[synth] -> {out_md} ({model_id})")
@@ -885,9 +869,7 @@ def main():
               "[--workers N] [--auto-pull] [--preview N] [--dry-run] "
               "[--index-window-pages N] [--gap-block-pages N] "
               "[--llm-recall] "
-              "[--synth draft|pro] [--site-context \"text\"] "
-              "[--gemini-model models/gemini-2.5-flash] "
-              "[--vertex] [--gcp-project X] [--gcp-location us-central1]")
+              "[--synth draft|pro] [--site-context \"text\"] [--gemini-model models/gemini-2.5-flash]")
         sys.exit(1)
 
     input_path = sys.argv[1]
@@ -911,12 +893,7 @@ def main():
     site_context = parse_flag_str(sys.argv, "--site-context", "")
     gemini_model_override = parse_flag_str(sys.argv, "--gemini-model", None)
 
-    # Vertex controls
-    use_vertex = has_flag(sys.argv, "--vertex")
-    gcp_project = parse_flag_str(sys.argv, "--gcp-project", None)
-    gcp_location = parse_flag_str(sys.argv, "--gcp-location", None)
-
-    # Model + endpoint (local)
+    # Model + endpoint
     wanted_model = MODEL_DEFAULT
     base_url = resolve_ollama_url()
     model = resolve_model_or_exit(base_url, wanted_model, allow_autopull)
@@ -973,17 +950,13 @@ def main():
 
     # Synthesis per JSONL (if requested)
     if synth_tier:
-        if not _GENAI_READY:
-            raise SystemExit("Install GenAI deps for synthesis: pip install google-genai tenacity")
+        if not _GEMINI_READY:
+            raise SystemExit("Install Gemini deps for synthesis: pip install google-generativeai tenacity")
         for pdf, jsonl_path, _, _ in results:
             try:
                 _, name = os.path.split(jsonl_path)
                 log.info(f"[synth] Building report for {name} ({synth_tier})")
-                synth_for_jsonl(
-                    jsonl_path, out_dir, site_context, tier=synth_tier,
-                    explicit_model=gemini_model_override,
-                    use_vertex=use_vertex, project=gcp_project, location=gcp_location
-                )
+                synth_for_jsonl(jsonl_path, out_dir, site_context, tier=synth_tier, explicit_model=gemini_model_override)
             except Exception as e:
                 log.exception(f"[synth ERROR] {jsonl_path}: {e}")
 
