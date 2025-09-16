@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# download_earls_court.py
+# download_earls_court.py (Drive-fixed)
 import argparse, hashlib, json, os, re, sys, time
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urljoin, quote_plus
@@ -27,6 +27,7 @@ ALLOWED_DOMAINS = {
     "public-access.lbhf.gov.uk",
     "drive.google.com",
     "docs.google.com",
+    "drive.usercontent.google.com",  # NEW: actual file host used by Drive
     "issuu.com",
     "www.issuu.com",
 }
@@ -36,13 +37,16 @@ SESSION.headers.update(HEADERS)
 SESSION.max_redirects = 10
 TIMEOUT = 30
 
-def safe_filename(url: str) -> str:
-    path = urlparse(url).path
-    name = os.path.basename(path) or "file"
-    # Keep query hint if helpful
-    qs = urlparse(url).query
-    if qs and not name.lower().endswith(".pdf"):
-        name = (name + "-" + re.sub(r"[^A-Za-z0-9._-]+", "_", qs))[:140]
+def safe_filename(url_or_name: str) -> str:
+    # Accept either a URL or a plain filename, normalise to safe
+    if "/" in url_or_name or "\\" in url_or_name:
+        path = urlparse(url_or_name).path
+        name = os.path.basename(path) or "file"
+        qs = urlparse(url_or_name).query
+        if qs and not name.lower().endswith(".pdf"):
+            name = (name + "-" + re.sub(r"[^A-Za-z0-9._-]+", "_", qs))[:140]
+    else:
+        name = url_or_name or "file"
     return re.sub(r"[^A-Za-z0-9._-]+", "_", name)
 
 def sha256_file(fp) -> str:
@@ -56,7 +60,10 @@ def is_pdf_url(url: str) -> bool:
     # Quick check first
     if url.lower().endswith(PDF_EXT):
         return True
-    # Some portals serve PDFs via no-extension routes; we’ll HEAD it
+    # Drive behaves badly with HEAD; skip and let Drive handler decide
+    netloc = urlparse(url).netloc.lower()
+    if "google.com" in netloc or "usercontent.google.com" in netloc:
+        return False
     try:
         r = SESSION.head(url, allow_redirects=True, timeout=TIMEOUT)
         ctype = r.headers.get("Content-Type", "")
@@ -64,36 +71,150 @@ def is_pdf_url(url: str) -> bool:
     except Exception:
         return False
 
-def goog_drive_direct(u: str) -> str | None:
-    # Handle both docs.google.com and drive.google.com viewer links
-    parsed = urlparse(u)
-    if "google.com" not in parsed.netloc:
+def parse_content_disposition_filename(disposition: str | None) -> str | None:
+    if not disposition:
         return None
-    # patterns: /file/d/<id>/view, /uc?id=<id>, open?id=<id>
-    m = re.search(r"/file/d/([^/]+)/", parsed.path)
+    # Try RFC 5987 filename*=
+    m = re.search(r'filename\*\s*=\s*[^\'"]+\'[^\'"]*\'([^;]+)', disposition, flags=re.I)
     if m:
-        fid = m.group(1)
-        return f"https://drive.google.com/uc?export=download&id={fid}"
+        return m.group(1)
+    # Fallback to filename=
+    m = re.search(r'filename\s*=\s*"([^"]+)"', disposition, flags=re.I)
+    if m:
+        return m.group(1)
+    m = re.search(r'filename\s*=\s*([^;]+)', disposition, flags=re.I)
+    if m:
+        return m.group(1).strip()
+    return None
+
+def extract_gdrive_id(u: str) -> str | None:
+    parsed = urlparse(u)
+    if "google.com" not in parsed.netloc and "googleusercontent.com" not in parsed.netloc:
+        return None
+    # /file/d/<id>/...
+    m = re.search(r"/file/d/([^/]+)/?", parsed.path)
+    if m:
+        return m.group(1)
+    # id=...
     qs = parse_qs(parsed.query)
     fid = qs.get("id", [None])[0]
     if fid:
-        return f"https://drive.google.com/uc?export=download&id={fid}"
+        return fid
     return None
 
+def drive_build_initial_url(file_id: str) -> str:
+    # The legacy uc endpoint is still the entry point that sets cookies
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+def drive_try_usercontent_url(file_id: str, confirm: str | None = None) -> str:
+    # Newer flow often lands here; confirm is optional on small files
+    base = "https://drive.usercontent.google.com/download"
+    if confirm:
+        return f"{base}?id={file_id}&export=download&confirm={confirm}"
+    return f"{base}?id={file_id}&export=download"
+
+def drive_extract_confirm_token(html: str) -> str | None:
+    # Look for confirm token in links or hidden inputs
+    # href="...confirm=<token>..."
+    m = re.search(r"confirm=([0-9A-Za-z_]+)", html)
+    if m:
+        return m.group(1)
+    # hidden input: name="confirm" value="token"
+    m = re.search(r'name=["\']confirm["\']\s+value=["\']([0-9A-Za-z_]+)["\']', html)
+    if m:
+        return m.group(1)
+    return None
+
+def download_gdrive(url: str, out_dir: str) -> dict:
+    info = {"url": url, "status": "skipped", "path": None, "sha256": None, "note": None}
+    try:
+        file_id = extract_gdrive_id(url)
+        if not file_id:
+            info["status"] = "not_gdrive"
+            return info
+
+        # Step 1: hit uc endpoint to set cookies or (if small) get file directly
+        init_url = drive_build_initial_url(file_id)
+        r = SESSION.get(init_url, timeout=TIMEOUT, allow_redirects=True)
+        ctype = r.headers.get("Content-Type", "").lower()
+
+        if "application/pdf" in ctype or "application/octet-stream" in ctype:
+            # Direct file response
+            disp = r.headers.get("Content-Disposition")
+            fname = parse_content_disposition_filename(disp) or f"{file_id}.pdf"
+            if not fname.lower().endswith(".pdf"):
+                fname += ".pdf"
+            path = os.path.join(out_dir, safe_filename(fname))
+            with open(path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+            info["path"] = path
+            info["sha256"] = sha256_file(path)
+            info["status"] = "downloaded"
+            return info
+
+        # Step 2: it's an HTML interstitial; parse confirm token
+        html = r.text
+        if "Quota exceeded" in html or "download quota for this file has been exceeded" in html:
+            info["status"] = "quota_exceeded"
+            info["note"] = "Google Drive download quota exceeded"
+            return info
+
+        confirm = drive_extract_confirm_token(html)
+
+        # Step 3: request usercontent with (maybe) confirm
+        u2 = drive_try_usercontent_url(file_id, confirm)
+        r2 = SESSION.get(u2, timeout=TIMEOUT, stream=True)
+        ctype2 = r2.headers.get("Content-Type", "").lower()
+
+        # Occasionally another HTML page; try once more to harvest token from it
+        if "text/html" in ctype2 and confirm is None:
+            html2 = r2.text
+            confirm = drive_extract_confirm_token(html2)
+            if confirm:
+                u3 = drive_try_usercontent_url(file_id, confirm)
+                r2 = SESSION.get(u3, timeout=TIMEOUT, stream=True)
+                ctype2 = r2.headers.get("Content-Type", "").lower()
+
+        if "application/pdf" not in ctype2 and "application/octet-stream" not in ctype2:
+            info["status"] = f"not_pdf ({ctype2 or 'unknown'})"
+            info["note"] = "Drive interstitial not resolved"
+            return info
+
+        disp2 = r2.headers.get("Content-Disposition")
+        fname2 = parse_content_disposition_filename(disp2) or f"{file_id}.pdf"
+        if not fname2.lower().endswith(".pdf"):
+            fname2 += ".pdf"
+        path = os.path.join(out_dir, safe_filename(fname2))
+
+        with open(path, "wb") as f:
+            for chunk in r2.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    f.write(chunk)
+
+        info["path"] = path
+        info["sha256"] = sha256_file(path)
+        info["status"] = "downloaded"
+        return info
+
+    except requests.HTTPError as e:
+        info["status"] = f"http_error {e.response.status_code if e.response else ''}"
+        return info
+    except Exception as e:
+        info["status"] = f"error: {e}"
+        return info
+
 def try_issuu_pdf(u: str) -> str | None:
-    # Best-effort: sometimes Issuu exposes a downloadable PDF in meta tags or JSON.
-    # We’ll fetch HTML and look for a direct .pdf in og:video / scripts.
     try:
         html = SESSION.get(u, timeout=TIMEOUT).text
     except Exception:
         return None
-    # Look for obvious .pdf URLs
     for m in re.finditer(r"https?://[^\s\"']+\.pdf", html, flags=re.I):
         cand = m.group(0)
-        # Sanity check the URL actually returns a PDF
         if is_pdf_url(cand):
             return cand
-    return None  # Fall back to manual later if not found
+    return None
 
 def within_allowed(u: str) -> bool:
     try:
@@ -117,31 +238,34 @@ def extract_links(seed_url: str) -> set[str]:
     soup = BeautifulSoup(r.text, "html.parser")
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
-        # Skip anchors/mailto
         if href.startswith("#") or href.startswith("mailto:"):
             continue
         u = absolute(seed_url, href)
         if within_allowed(u):
             links.add(u)
-
-    # Some pages (like LBHF) list many PDFs across sections – also follow obvious pagination in-page
     return links
 
 def download_file(url: str, out_dir: str) -> dict:
     info = {"url": url, "status": "skipped", "path": None, "sha256": None, "note": None}
     try:
-        # Convert Google Drive viewers to direct
-        gd = goog_drive_direct(url)
-        if gd:
-            url = gd
+        netloc = urlparse(url).netloc.lower()
 
-        # Try Issuu direct PDF resolution
-        if "issuu.com" in urlparse(url).netloc.lower():
+        # Google Drive (new flow)
+        if "google.com" in netloc or "googleusercontent.com" in netloc:
+            gd_info = download_gdrive(url, out_dir)
+            if gd_info["status"] == "not_gdrive":
+                # Not a recognised Drive link; fall through to generic logic
+                pass
+            else:
+                return gd_info
+
+        # Issuu: attempt to resolve direct PDF
+        if "issuu.com" in netloc:
             direct = try_issuu_pdf(url)
             if direct:
                 url = direct
             else:
-                info["status"] = "needs_manual"  # captured in manifest
+                info["status"] = "needs_manual"
                 info["note"] = "Issuu page saved; no direct PDF found"
                 return info
 
@@ -158,11 +282,17 @@ def download_file(url: str, out_dir: str) -> dict:
             info["status"] = f"not_pdf ({ctype})"
             return info
 
-        name = safe_filename(url)
+        # Prefer server-provided filename if any
+        disp = resp.headers.get("Content-Disposition")
+        fname = parse_content_disposition_filename(disp)
+        if fname:
+            name = safe_filename(fname)
+        else:
+            name = safe_filename(url)
         if not name.lower().endswith(".pdf"):
             name += ".pdf"
-        path = os.path.join(out_dir, name)
 
+        path = os.path.join(out_dir, name)
         with open(path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
                 if chunk:
@@ -172,6 +302,7 @@ def download_file(url: str, out_dir: str) -> dict:
         info["sha256"] = sha256_file(path)
         info["status"] = "downloaded"
         return info
+
     except requests.HTTPError as e:
         info["status"] = f"http_error {e.response.status_code if e.response else ''}"
         return info
@@ -201,25 +332,22 @@ def main():
     for seed in args.seeds:
         print(f"[seed] {seed}")
         links = extract_links(seed)
-        # Keep direct PDF links and also keep known portals/Issuu/Drive for follow-up
         all_links |= links
 
-    # Expand one level for earlscourt.com/planning pages (often sectioned)
     to_check = set(all_links)
     for u in list(all_links):
         if urlparse(u).netloc.endswith("earlscourt.com") and u.rstrip("/").startswith("https://www.earlscourt.com/planning"):
             to_check |= extract_links(u)
 
-    # Filter to plausible doc links (pdfs, drive viewers, public-access endpoints, issuu pages)
     candidates = set()
     for u in to_check:
         netloc = urlparse(u).netloc.lower()
         if u.lower().endswith(".pdf"):
             candidates.add(u)
-        elif "drive.google.com" in netloc or "docs.google.com" in netloc:
+        elif "drive.google.com" in netloc or "docs.google.com" in netloc or "drive.usercontent.google.com" in netloc:
             candidates.add(u)
         elif "public-access.lbhf.gov.uk" in netloc:
-            candidates.add(u)  # many are direct file links
+            candidates.add(u)
         elif "rbkc.gov.uk" in netloc and (".pdf" in u.lower() or "/downloads/" in u.lower()):
             candidates.add(u)
         elif "issuu.com" in netloc:
@@ -232,21 +360,20 @@ def main():
             break
         if "issuu.com" in u and not args.include_issuu:
             results.append({"url": u, "status": "issuu_skipped", "note": "run with --include-issuu to attempt"})
+            print(f"[issuu_skipped] {u}")
             continue
+
         info = download_file(u, out_dir)
         results.append(info)
         if info["status"] == "downloaded":
             pdf_count += 1
         print(f"[{info['status']}] {u}")
 
-        # Be nice to hosts
         time.sleep(0.5)
 
-    # Save manifest
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump({"seeds": args.seeds, "results": results}, f, indent=2)
 
-    # Summary
     dl = sum(1 for r in results if r["status"] == "downloaded")
     pending = [r for r in results if r["status"] in ("issuu_skipped", "needs_manual")]
     print(f"\nDone. Downloaded {dl} file(s) to: {out_dir}")
