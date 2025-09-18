@@ -1,0 +1,18 @@
+index:
+  input_dirs:
+    - ./tests/data/app
+    - ./tests/data/policy
+  ocr_fallback: false
+retrieval:
+  k_app: 3
+  k_policy: 3
+  k_adversarial: 0
+  max_candidates: 60
+  use_reranker: false
+  mix_weights: {app: 0.5, policy: 0.5}
+llm:
+  provider: dummy
+  model: gpt-oss:20b
+output:
+  cite_style: inline_ids
+  save_zip_of_pages: true

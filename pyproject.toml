@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tpa-lab"
+version = "0.2.0"
+description = "Decision-led officer report pipeline"
+authors = [{name = "TPA Lab", email = "dev@tpa.local"}]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "typer[all]",
+    "PyYAML",
+    "PyMuPDF",
+    "numpy",
+    "httpx",
+    "sentence-transformers",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]
+
+[project.scripts]
+tpa = "tpa.cli:app"
