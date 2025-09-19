@@ -1,2 +1,0 @@
-APP:sample_app_p1
-APP:sample_app_2_p1

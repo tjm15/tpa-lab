@@ -1,4 +1,0 @@
-VIS:sample_app_p1
-VIS:sample_app_2_p1
-VIS:sample_policy_p1
-VIS:sample_policy_2_p1

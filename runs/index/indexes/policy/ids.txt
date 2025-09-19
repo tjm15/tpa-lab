@@ -1,2 +1,0 @@
-POL:sample_policy_p1
-POL:sample_policy_2_p1
