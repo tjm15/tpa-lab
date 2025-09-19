@@ -1,0 +1,51 @@
+# Comprehensive configuration for tpa-lab end-to-end officer report generation
+# Copy or adapt this file; invoke with:  python -m tpa.cli pipeline --config CONFIG.yml --run dev --sections '*'
+# Auto-discovery (via CLI flags) can override index.input_dirs. If you prefer explicit paths list them here.
+
+index:
+  # Input corpus directories. These should contain PDFs (recursed). Adjust to your environment.
+  # If you run with --auto-discover / pipeline default, these may be replaced at runtime with:
+  #   downloads/policies + latest downloads/earls-court-YYYYMMDD-HHMMSS
+  input_dirs:
+    - ./downloads/policies
+    - ./downloads/earls-court-20250917-074746
+  # Enable OCR fallback ONLY if you have image PDFs and Tesseract + Pillow installed.
+  ocr_fallback: false
+
+retrieval:
+  # Number of top application (app) document chunks to surface.
+  k_app: 6
+  # Number of top policy chunks to surface.
+  k_policy: 6
+  # Adversarial (reserved, leave 0 unless experimenting with challenge examples).
+  k_adversarial: 0
+  # Maximum combined candidates considered before weighting & filtering.
+  max_candidates: 120
+  # Use cross-encoder reranker (set true if you extend rerank.py to load one).
+  use_reranker: false
+  # Mixing weights between application evidence vs policy evidence.
+  mix_weights: {app: 0.55, policy: 0.45}
+
+llm:
+  # Provider options implemented: dummy, ollama (extend as needed).
+  provider: dummy
+  # Model identifier (for provider). Replace with your actual model if integrating real LLM.
+  model: gpt-oss:20b
+
+output:
+  # How citations appear in markdown: inline_ids | footnotes (inline_ids implemented).
+  cite_style: inline_ids
+  # Export zip of the source page images & text assets for evidence traceability.
+  save_zip_of_pages: true
+
+# --- Guidance ---
+# 1. For initial ingestion, the exact PDFs under the listed directories are chunked.
+# 2. Delete runs/index/ to re-index after changing parameters (or run with new dirs).
+# 3. Adjust k_app/k_policy up if retrieval feels shallow; monitor latency & memory.
+# 4. mix_weights shifts emphasis: >0.5 app favors application narrative, >0.5 policy emphasizes policy text.
+# 5. If enabling OCR, ensure `pytesseract` & system tesseract binary installed (sudo apt install tesseract-ocr). This slows ingestion significantly.
+# 6. You can create multiple config variants (CONFIG_fast.yml, CONFIG_ocr.yml) and switch via --config.
+# 7. To process all prompt sections:   python -m tpa.cli pipeline --config CONFIG.yml --run full --sections '*'
+# 8. To run only transport with progress:   python -m tpa.cli report --config CONFIG.yml --run transport_run --section transport --auto_discover --progress
+# 9. If you add a new earls-court download snapshot, re-run pipeline with --auto-discover to pick it up automatically.
+# 10. If you later implement a reranker, set use_reranker: true and tune k_* and max_candidates accordingly.

@@ -1,0 +1,41 @@
+# High-quality (brute force) configuration for tpa-lab
+# Use this when you want deeper retrieval + reranking + stronger model.
+# Run end-to-end:
+#   python -m tpa.cli pipeline --config CONFIG_hq.yml --run hq_full --sections '*'
+# (Delete runs/index/ first if you previously indexed with a lighter config.)
+
+index:
+  # Directories are hints; using pipeline with --auto-discover (default True) will replace them
+  # with downloads/policies plus the latest downloads/earls-court-* snapshot if found.
+  input_dirs:
+    - ./downloads/policies
+    - ./downloads/earls-court-20250917-074746
+  ocr_fallback: false   # Enable only if many scanned PDFs AND tesseract is installed.
+
+retrieval:
+  # Wider initial recall – higher candidate pool for reranker / weighting.
+  max_candidates: 400
+  # More top chunks per class – improves evidence richness at cost of verbosity.
+  k_app: 18
+  k_policy: 18
+  k_adversarial: 0
+  # Activate cross-encoder reranker (sentence-transformers must be installed; already in deps).
+  use_reranker: true
+  # Balanced weighting so policy evidence is not under-emphasised.
+  mix_weights: {app: 0.5, policy: 0.5}
+
+llm:
+  # Use the real model via local Ollama instead of dummy echo for quality output.
+  provider: ollama
+  model: gpt-oss:20b  # Ensure you have pulled this:  ollama pull gpt-oss:20b
+
+output:
+  cite_style: inline_ids
+  save_zip_of_pages: true
+
+# Notes:
+# - Rebuilding index not strictly required after changing ONLY retrieval.* settings, but
+#   deleting runs/index ensures you start from a clean slate if you alter ingestion parameters.
+# - If you hit memory/time constraints, first drop k_app/k_policy (e.g. to 12) before reducing max_candidates.
+# - For faster iteration keep this config and run single section:  python -m tpa.cli pipeline --config CONFIG_hq.yml --run hq_transport --sections transport
+# - Vision (Gemma) summaries are currently produced only if visual chunks are retrieved; configure via env vars later (future enhancement).
