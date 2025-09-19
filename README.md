@@ -63,6 +63,28 @@ output:
 
 Set `llm.provider` to `ollama` to invoke a local `gpt-oss:20b` model (recommended for real runs). For automated tests or offline smoke checks you can set `provider=dummy` to skip the heavy call, but production runs should use Ollama. Embeddings default to `BAAI/bge-large-en-v1.5`; if the model cannot be loaded, we fall back to a hash encoder and log the downgrade. Enabling `index.ocr_fallback: true` will attempt OCR (Tesseract + Pillow) when PyMuPDF returns empty text so scanned PDFs aren’t dropped. Visual chunks are handed to `gemma3:27b` via Ollama for multimodal commentary, so ensure that model is pulled locally.
 
+### Using Google Gemini 2.5 Pro (optional cloud backend)
+
+You can switch to Google’s Gemini 2.5 Pro for both text drafting and multimodal (image) understanding:
+
+1. Install deps (already in `pyproject.toml`): `google-genai`, `tenacity`.
+2. Export your API key:
+  ```bash
+  export GOOGLE_API_KEY=your_key_here
+  # or: export GEMINI_API_KEY=your_key_here
+  ```
+3. In your config:
+  ```yaml
+  llm:
+    provider: google
+    model: gemini-2.5-pro   # auto-normalised to models/gemini-2.5-pro
+  ```
+4. (Optional) Set `TPA_LLM_PROVIDER=google` to route vision summaries through Gemini instead of local Ollama.
+
+When `provider: google` is active the pipeline uses the Gemini SDK (`google-genai`) to call `models/gemini-2.5-pro`. Vision chunks (figures / page snapshots) are summarised via Gemini’s multimodal endpoint and injected as additional evidence lines (tagged `[FIG:...]`) so the main completion can reason over visual context. If the SDK or key are missing the run will raise a clear error. Set `TPA_DISABLE_VISION=1` to skip image analysis.
+
+Future: streaming and long-context (1M tok) support can be added by swapping to the SDK stream API; stubs in `GoogleGeminiClient` highlight the extension point.
+
 ## Tests
 
 Two pytest suites ship with the repo:

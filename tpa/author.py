@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List
+from typing import Optional
 
 import yaml
 
@@ -52,7 +53,8 @@ def compose_output(
     retrieved: Iterable[Retrieved],
     template: PromptTemplate,
     llm: BaseLLM | None,
-) -> tuple[str, str]:
+    visual_summaries: Optional[List[Dict]] = None,
+) -> tuple[str, str, str]:
     evidence_lines = [
         f"- score={item.score:.3f}: {_format_chunk(item.chunk)}"
         for item in retrieved
@@ -105,6 +107,7 @@ def compose_output(
     else:
         doc_intro += "Insufficient evidence for a planning balance; further retrieval needed. [POL:MISSING]"
 
+    # Rebuild messages now that evidence_block may include visuals
     messages = template.build_messages(section, evidence_block)
     prompt_text = "\n\n".join(f"{m['role'].upper()}: {m['content']}" for m in messages)
 
@@ -119,6 +122,25 @@ def compose_output(
                 completion_text = "[MISSING LLM COMPLETION]"
         except Exception as exc:  # pragma: no cover - LLM failure fallback
             completion_text = f"[MISSING LLM COMPLETION: {exc}]"
+
+    # Integrate visual summaries (if provided) as additional evidence items so LLM can reason over imagery.
+    visual_lines: List[str] = []
+    if visual_summaries:
+        for vis in visual_summaries:
+            vid = vis.get("id") or "VIS"
+            summ = (vis.get("summary") or "").strip()
+            path = vis.get("path") or ""
+            if summ:
+                visual_lines.append(f"- score=NA: [FIG:{Path(path).stem}] {summ}")
+    evidence_block = "\n".join(evidence_lines + visual_lines)
+
+    # Append a small visual evidence section if visual summaries provided and model output not used later.
+    if visual_lines:
+        doc_intro += "\n### Visual Evidence (AI summaries)\n"
+        for line in visual_lines:
+            # remove leading '- score=NA:' for cleaner output
+            cleaned = line.split(':', 1)[-1].strip()
+            doc_intro += f"- {cleaned}\n"
 
     final_markdown = doc_intro
     model_output = completion_text.strip()
