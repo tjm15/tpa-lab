@@ -9,6 +9,20 @@ def _create_run(tmp_path: Path, markdown: str, retrieved: list[dict], evidence: 
     run_dir = tmp_path
     (run_dir / "section_transport.md").write_text(markdown, encoding="utf-8")
     (run_dir / "retrieved.json").write_text(__import__("json").dumps(retrieved, indent=2), encoding="utf-8")
+    reasoning = {
+        "section": "transport",
+        "claims": [
+            {
+                "id": "CLAIM_SAMPLE",
+                "text": "Placeholder claim",
+                "source": retrieved[0]["id"] if retrieved else "MISSING",
+                "matched_policies": ["POL:MISSING"],
+                "conflicts": [],
+            }
+        ],
+        "retrieval_trace": retrieved,
+    }
+    (run_dir / "reasoning.json").write_text(__import__("json").dumps(reasoning, indent=2), encoding="utf-8")
     if evidence:
         evidence_dir = run_dir / "evidence"
         evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -19,6 +33,7 @@ def _create_run(tmp_path: Path, markdown: str, retrieved: list[dict], evidence: 
             "retrieved": "retrieved.json",
             "prompt": "prompt.txt",
             "completion": "completion.md",
+            "reasoning": "reasoning.json",
             "evidence_dir": "evidence" if evidence else None,
         },
         "output": {"save_zip_of_pages": evidence},

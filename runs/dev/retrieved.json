@@ -1,0 +1,30 @@
+[
+  {
+    "id": "POL:sample_policy_p1",
+    "kind": "policy",
+    "score": 0.4393487274646759,
+    "path": "/home/tjm/code/tpa-lab/tests/data/policy/sample_policy.pdf",
+    "page": 1
+  },
+  {
+    "id": "POL:sample_policy_2_p1",
+    "kind": "policy",
+    "score": 0.41165703535079956,
+    "path": "/home/tjm/code/tpa-lab/tests/data/policy/sample_policy_2.pdf",
+    "page": 1
+  },
+  {
+    "id": "APP:sample_app_2_p1",
+    "kind": "app",
+    "score": 0.3988214135169983,
+    "path": "/home/tjm/code/tpa-lab/tests/data/app/sample_app_2.pdf",
+    "page": 1
+  },
+  {
+    "id": "APP:sample_app_p1",
+    "kind": "app",
+    "score": 0.3971427381038666,
+    "path": "/home/tjm/code/tpa-lab/tests/data/app/sample_app.pdf",
+    "page": 1
+  }
+]

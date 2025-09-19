@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Iterator, List
+from typing import Any, Dict, Iterator, List
 
 
 @dataclass
@@ -12,11 +12,12 @@ class Chunk:
     kind: str
     path: str
     page: int
-    text: str
+    text: str | None
     hash: str
+    metadata: Dict[str, Any]
 
     def to_json(self) -> str:
-        return json.dumps(self.__dict__, ensure_ascii=False)
+        return json.dumps(asdict(self), ensure_ascii=False)
 
 
 def write_chunks(chunks: List[Chunk], output: Path) -> None:
@@ -33,6 +34,8 @@ def read_chunks(path: Path) -> Iterator[Chunk]:
             if not line.strip():
                 continue
             payload = json.loads(line)
+            if "metadata" not in payload:
+                payload["metadata"] = {}
             yield Chunk(**payload)
 
 

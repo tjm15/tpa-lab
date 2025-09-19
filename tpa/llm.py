@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import base64
+from pathlib import Path
 from typing import Iterable
 
 import httpx
@@ -36,6 +38,32 @@ class OllamaLocal(BaseLLM):
         return data.get("message", {}).get("content", "")
 
 
+class OllamaVision:
+    def __init__(self, model: str = "gemma3:27b", base_url: str = "http://localhost:11434") -> None:
+        self.model = model
+        self.client = httpx.AsyncClient(base_url=base_url)
+
+    async def analyse(self, prompt: str, image_path: Path) -> str:
+        image_bytes = image_path.read_bytes()
+        encoded = base64.b64encode(image_bytes).decode("utf-8")
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image", "image": encoded},
+                    ],
+                }
+            ],
+        }
+        response = await self.client.post("/api/chat", json=payload, timeout=None)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("message", {}).get("content", "")
+
+
 def get_llm(provider: str, model: str) -> BaseLLM:
     if provider == "dummy":
         return DummyEcho()
@@ -44,4 +72,4 @@ def get_llm(provider: str, model: str) -> BaseLLM:
     raise ValueError(f"Unsupported LLM provider: {provider}")
 
 
-__all__ = ["BaseLLM", "DummyEcho", "OllamaLocal", "get_llm"]
+__all__ = ["BaseLLM", "DummyEcho", "OllamaLocal", "OllamaVision", "get_llm"]

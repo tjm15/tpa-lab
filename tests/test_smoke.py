@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -8,6 +9,7 @@ from tpa.cli import app
 def test_full_pipeline(tmp_path):
     runner = CliRunner()
     config_path = Path("CONFIG.sample.yml")
+    os.environ["TPA_EMBED_MODE"] = "hash"
 
     index_result = runner.invoke(app, ["index", "--config", str(config_path)])
     assert index_result.exit_code == 0

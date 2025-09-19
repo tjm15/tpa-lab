@@ -16,7 +16,7 @@ A **decision-led** pipeline that turns a messy PDF soup (application + policy) i
 * GPU optional. Must run on CPU. Prefer PyTorch with CUDA if available.
 * All models local by default. Provide adapters for:
 
-  * **Embeddings:** `BAAI/bge-large-en` via `sentence-transformers`.
+  * **Embeddings:** `BAAI/bge-large-en-v1.5` via `sentence-transformers`.
   * **Reranker (optional):** `bge-reranker-large` via `sentence-transformers` cross‑encoder.
   * **LLM:** abstract interface; implement `OllamaLocal(model="gpt-oss:20b")` and `DummyEcho` (for tests).
 
@@ -117,7 +117,7 @@ Create `runs/{RUN_NAME}/` containing:
 run: RUN_NAME
 created_at: <iso8601>
 models:
-  embedding: BAAI/bge-large-en
+  embedding: BAAI/bge-large-en-v1.5
   reranker: null
   llm: gpt-oss:20b
 inputs:

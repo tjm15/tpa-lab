@@ -1,7 +1,82 @@
-/.venv
-/downloads
+#############################
+# Python / Project Ignores  #
+#############################
+
+# Virtual environments
+/.venv/
+venv/
+env/
+
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+pip-log.txt
+
+# Installer logs
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.pytest_cache/
+cover/
+htmlcov/
+.coverage
+.coverage.*
+*.cover
+*.py,cover
+.hypothesis/
+.tox/
+.nox/
+
+# Type check / lint tooling caches
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Jupyter / IPython
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# Editor / IDE
+.vscode/
+*.swp
+*.swo
+*.orig
+
+# Logs
+*.log
+
+# Local data / downloads (keep structure but ignore contents if desired)
+/downloads/
+
+# Project specific large documents (explicitly ignored)
 AA_24-09-03 Local Plan 2024_Final Clean Version _02.pdf
-.gitignore
 local_plan_2018_web_version.pdf
 Earl's Court Opportunity Area Placemaking Framework.pdf
-__pycache__
+
+# Mac / OS noise
+.DS_Store
+
+# Coverage XML / reports
+coverage.xml
+
+# Temporary output folder
+out/
+
+# Allow list (negations) - example: keep seed files
+!data/seeds/
+
+# End of file

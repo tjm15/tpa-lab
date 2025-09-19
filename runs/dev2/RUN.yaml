@@ -1,0 +1,27 @@
+run: dev2
+created_at: '2025-09-19T00:53:42.677242+00:00'
+models:
+  embedding: BAAI/bge-large-en-v1.5
+  reranker: null
+  llm: gpt-oss:20b
+inputs:
+  sections:
+  - transport
+  config_hash: bce559df8b61029f5ee72fed2dea35306de5a354977122a7f043217176342464
+retrieval:
+  k_app: 3
+  k_policy: 3
+  k_adversarial: 0
+  mix_weights:
+    app: 0.5
+    policy: 0.5
+files:
+  output_md: section_transport.md
+  retrieved: retrieved.json
+  prompt: prompt.txt
+  completion: completion.md
+  reasoning: reasoning.json
+  evidence_dir: evidence
+output:
+  cite_style: inline_ids
+  save_zip_of_pages: true

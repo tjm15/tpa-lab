@@ -16,7 +16,7 @@ def package_run(run_dir: Path) -> Path:
 
     zip_path = run_dir / "package.zip"
     with ZipFile(zip_path, "w") as zf:
-        for key in ["output_md", "retrieved", "prompt", "completion"]:
+        for key in ["output_md", "retrieved", "prompt", "completion", "reasoning"]:
             rel = manifest["files"].get(key)
             if not rel:
                 continue

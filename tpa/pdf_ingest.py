@@ -6,6 +6,13 @@ from typing import List
 
 import fitz  # type: ignore
 
+try:  # optional OCR dependencies
+    import pytesseract  # type: ignore
+    from PIL import Image  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    pytesseract = None
+    Image = None
+
 from .chunk_store import Chunk
 from .config import Config
 from .logging import log
@@ -28,19 +35,71 @@ def ingest_pdfs(config: Config) -> List[Chunk]:
             with fitz.open(pdf_path) as doc:
                 for page_idx, page in enumerate(doc, start=1):
                     text = page.get_text("text").strip()
-                    if not text:
-                        continue
+                    ocr_used = False
+                    if not text and config.index.ocr_fallback:
+                        if pytesseract and Image:
+                            try:
+                                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                                import io
+
+                                image = Image.open(io.BytesIO(pix.tobytes("png")))
+                                text = pytesseract.image_to_string(image).strip()
+                                ocr_used = True
+                            except Exception:  # pragma: no cover - noisy OCR failures
+                                text = ""
+                        else:
+                            log(
+                                "ingest",
+                                warning="ocr_fallback_requested_missing_dependency",
+                                file=str(pdf_path),
+                            )
                     base = pdf_path.stem.replace(" ", "_")
-                    chunk_id = f"{kind[:3].upper()}:{base}_p{page_idx}"
-                    hash_value = hashlib.sha256(f"{pdf_path}:{page_idx}:{text}".encode("utf-8")).hexdigest()
+                    cross_refs = []
+                    for word in text.split():
+                        if word.upper().startswith("POL") or word.upper().startswith("LP"):
+                            cross_refs.append(word)
+                    if text:
+                        chunk_id = f"{kind[:3].upper()}:{base}_p{page_idx}"
+                        hash_value = hashlib.sha256(
+                            f"{pdf_path}:{page_idx}:{text}".encode("utf-8")
+                        ).hexdigest()
+                        chunks.append(
+                            Chunk(
+                                id=chunk_id,
+                                kind=kind,
+                                path=str(pdf_path.resolve()),
+                                page=page_idx,
+                                text=text,
+                                hash=hash_value,
+                                metadata={
+                                    "type": "text",
+                                    "cross_refs": cross_refs,
+                                    "ocr_used": ocr_used,
+                                },
+                            )
+                        )
+
+                    # Visual placeholder chunk to satisfy hybrid retrieval requirement.
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1, 1))
+                    visual_dir = pdf_path.parent / "_visual_cache"
+                    visual_dir.mkdir(parents=True, exist_ok=True)
+                    visual_path = visual_dir / f"{base}_p{page_idx}.png"
+                    pix.save(visual_path)
+                    visual_id = f"VIS:{base}_p{page_idx}"
+                    hash_value = hashlib.sha256(str(visual_path).encode("utf-8")).hexdigest()
                     chunks.append(
                         Chunk(
-                            id=chunk_id,
-                            kind=kind,
+                            id=visual_id,
+                            kind="visual",
                             path=str(pdf_path.resolve()),
                             page=page_idx,
-                            text=text,
+                            text=f"Visual content for {base} page {page_idx}",
                             hash=hash_value,
+                            metadata={
+                                "type": "visual",
+                                "asset": str(visual_path.resolve()),
+                                "cross_refs": cross_refs,
+                            },
                         )
                     )
     log("ingest", total_chunks=len(chunks))

@@ -25,3 +25,6 @@ test = [
 
 [project.scripts]
 tpa = "tpa.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["tpa*"]

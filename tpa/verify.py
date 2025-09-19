@@ -59,6 +59,8 @@ def check_file_hygiene(run_dir: Path) -> str | None:
     if not retrieved_path.exists():
         return "retrieved.json missing"
     data = json.loads(retrieved_path.read_text(encoding="utf-8"))
+    if not data:
+        return "retrieved.json empty"
     for item in data:
         chunk_path = Path(item["path"])
         if not chunk_path.exists():
@@ -68,9 +70,22 @@ def check_file_hygiene(run_dir: Path) -> str | None:
         import yaml
 
         run_data = yaml.safe_load(manifest.read_text())
-        evidence_dir = run_dir / run_data["files"].get("evidence_dir", "")
-        if run_data.get("output", {}).get("save_zip_of_pages", True) and not evidence_dir.exists():
-            return "Evidence directory missing"
+        files = run_data.get("files", {})
+        reasoning_rel = files.get("reasoning")
+        if not reasoning_rel:
+            return "Reasoning log missing in manifest"
+        reasoning_path = run_dir / reasoning_rel
+        if not reasoning_path.exists():
+            return "Reasoning log file missing"
+        reasoning = json.loads(reasoning_path.read_text(encoding="utf-8"))
+        if not reasoning.get("claims"):
+            return "Reasoning log contains no claims entry"
+        evidence_rel = files.get("evidence_dir")
+        save_evidence = run_data.get("output", {}).get("save_zip_of_pages", True)
+        if save_evidence and evidence_rel:
+            evidence_dir = run_dir / evidence_rel
+            if not evidence_dir.exists():
+                return "Evidence directory missing"
     return None
 
 

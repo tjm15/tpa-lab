@@ -1,0 +1,54 @@
+{
+  "section": "transport",
+  "claims": [
+    {
+      "id": "CLAIM_APP_sample_app_p1_1",
+      "text": "Transport Statement\nThe applicant states that the scheme delivers 100 cycle parking spaces and minimises car travel.",
+      "source": "APP:sample_app_p1",
+      "matched_policies": [
+        "POL:sample_policy_p1"
+      ],
+      "conflicts": []
+    },
+    {
+      "id": "CLAIM_APP_sample_app_2_p1_2",
+      "text": "Travel Plan Summary\nThe applicant states that modal shift targets will be achieved within five years with robust monitoring.",
+      "source": "APP:sample_app_2_p1",
+      "matched_policies": [
+        "MISSING_POLICY"
+      ],
+      "conflicts": []
+    }
+  ],
+  "visual_summaries": [],
+  "retrieval_trace": [
+    {
+      "id": "POL:sample_policy_p1",
+      "kind": "policy",
+      "score": 0.3570327162742615,
+      "path": "/home/tjm/code/tpa-lab/tests/data/policy/sample_policy.pdf",
+      "page": 1
+    },
+    {
+      "id": "POL:sample_policy_2_p1",
+      "kind": "policy",
+      "score": 0.31622135639190674,
+      "path": "/home/tjm/code/tpa-lab/tests/data/policy/sample_policy_2.pdf",
+      "page": 1
+    },
+    {
+      "id": "APP:sample_app_p1",
+      "kind": "app",
+      "score": 0.28430384397506714,
+      "path": "/home/tjm/code/tpa-lab/tests/data/app/sample_app.pdf",
+      "page": 1
+    },
+    {
+      "id": "APP:sample_app_2_p1",
+      "kind": "app",
+      "score": 0.2805350422859192,
+      "path": "/home/tjm/code/tpa-lab/tests/data/app/sample_app_2.pdf",
+      "page": 1
+    }
+  ]
+}

@@ -17,7 +17,7 @@ The sample configuration points at `tests/data/app` and `tests/data/policy`, whi
 ### CLI commands
 
 - `tpa index --config CONFIG.yml` – parses PDFs into a chunk store (`runs/index/chunks.jsonl`) and builds embeddings per source class (`runs/index/indexes/`).
-- `tpa report --section transport --config CONFIG.yml --run RUN_NAME` – retrieves mixed policy/application evidence, drafts deterministic Markdown with inline IDs, and writes all artefacts under `runs/RUN_NAME/`.
+- `tpa report --section transport --config CONFIG.yml --run RUN_NAME` – retrieves mixed policy/application evidence, calls the configured local LLM (default `ollama:gpt-oss:20b`) to produce officer prose, and writes all artefacts (prompt, raw completion, curated section markdown, reasoning log, evidence snapshots) under `runs/RUN_NAME/`.
 - `tpa verify --run RUN_NAME` – runs planner-specific verification checks (policy linkage, source diversity, claim/evidence pairing, mini balance, file hygiene). Exits with status 1 on failure.
 - `tpa package --run RUN_NAME` – zips the run output and evidence snapshots into `runs/RUN_NAME/package.zip`.
 
@@ -29,12 +29,14 @@ runs/<RUN_NAME>/
   retrieved.json
   prompt.txt
   completion.md
+  reasoning.json
   evidence/
   RUN.yaml
   package.zip  (after `tpa package`)
 ```
 
-`RUN.yaml` captures models used, retrieval knobs, config hash, and output file mapping.
+`RUN.yaml` captures models used, retrieval knobs, config hash, and output file mapping. `reasoning.json`
+records the claim→policy matches, conflicts, and retrieval trace used to draft the section. When `output.save_zip_of_pages` is true, page snapshots are exported and included both on disk and inside `package.zip` for traceability.
 
 ## Configuration (`CONFIG.sample.yml`)
 
@@ -59,7 +61,7 @@ output:
   save_zip_of_pages: true
 ```
 
-Set `llm.provider` to `ollama` to invoke a local `gpt-oss:20b` model. The current scaffold keeps authoring deterministic when `provider=dummy`, ensuring tests run offline. Embeddings default to `BAAI/bge-large-en`, with a hash-based fallback if the model is unavailable.
+Set `llm.provider` to `ollama` to invoke a local `gpt-oss:20b` model (recommended for real runs). For automated tests or offline smoke checks you can set `provider=dummy` to skip the heavy call, but production runs should use Ollama. Embeddings default to `BAAI/bge-large-en-v1.5`; if the model cannot be loaded, we fall back to a hash encoder and log the downgrade. Enabling `index.ocr_fallback: true` will attempt OCR (Tesseract + Pillow) when PyMuPDF returns empty text so scanned PDFs aren’t dropped. Visual chunks are handed to `gemma3:27b` via Ollama for multimodal commentary, so ensure that model is pulled locally.
 
 ## Tests
 
@@ -86,6 +88,7 @@ make package  # RUN=<id>
 
 ## Notes & TODOs
 
-- Retrieval currently uses a lightweight hash embedding fallback if SentenceTransformers cannot load `BAAI/bge-large-en` (e.g., offline environments). Swap back to the true model once available.
-- Reranker integration and full LLM drafting loops are stubbed but ready for extension (`tpa/rerank.py`, `tpa/llm.py`).
+- Retrieval now enforces source mixing and supports optional adversarial samples; set `k_adversarial` and `use_reranker` in the config to experiment with richer evidence blends.
+- OCR fallback relies on `pytesseract` and `Pillow`; install them before enabling `index.ocr_fallback`.
+- Multimodal summaries rely on `gemma3:27b` via Ollama; set `TPA_DISABLE_VISION=1` to skip vision calls during tests or offline runs.
 - Evidence packaging exports page-level PNGs for traceability; switch to PDF slices if preferred.

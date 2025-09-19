@@ -16,6 +16,8 @@ from .retrieve import retrieve
 from .rerank import rerank
 from .verify import verify_run
 from .package import package_run
+from .reason import build_reasoning
+from .llm import get_llm
 
 app = typer.Typer(help="Decision-led officer report pipeline")
 
@@ -57,6 +59,8 @@ def report(
     query = f"{section} policy compliance"
     retrieved = retrieve(query, CHUNKS_PATH, INDEX_DIR, cfg.retrieval)
     retrieved = rerank(retrieved, cfg.retrieval.use_reranker)
+    if not retrieved:
+        log("retrieve", status="empty", run=run, section=section)
 
     retrieved_payload = [
         {
@@ -75,14 +79,17 @@ def report(
         raise FileNotFoundError(f"Prompt template not found for section '{section}'")
     template = PromptTemplate.from_yaml(template_path)
 
-    markdown, prompt_text = compose_output(section, retrieved, template, llm=None)
+    llm = get_llm(cfg.llm.provider, cfg.llm.model)
+    markdown, prompt_text, completion_text = compose_output(section, retrieved, template, llm=llm)
 
     prompt_file = run_dir / "prompt.txt"
     save_prompt(prompt_file, prompt_text)
     completion_file = run_dir / "completion.md"
-    completion_file.write_text(markdown, encoding="utf-8")
+    completion_file.write_text(completion_text if completion_text else markdown, encoding="utf-8")
     output_file = run_dir / f"section_{section}.md"
     output_file.write_text(markdown, encoding="utf-8")
+
+    reasoning_path = build_reasoning(section, retrieved, run_dir)
 
     if cfg.output.save_zip_of_pages:
         from .evidence import export_pages
@@ -93,7 +100,7 @@ def report(
         "run": run,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "models": {
-            "embedding": "BAAI/bge-large-en",
+            "embedding": "BAAI/bge-large-en-v1.5",
             "reranker": None,
             "llm": cfg.llm.model,
         },
@@ -112,6 +119,7 @@ def report(
             "retrieved": "retrieved.json",
             "prompt": prompt_file.name,
             "completion": completion_file.name,
+            "reasoning": reasoning_path.name,
             "evidence_dir": "evidence" if cfg.output.save_zip_of_pages else None,
         },
         "output": {

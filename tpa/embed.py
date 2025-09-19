@@ -28,7 +28,8 @@ def _hash_encode(texts: List[str]) -> np.ndarray:
 def _bge_encode(texts: List[str]) -> np.ndarray:
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer("BAAI/bge-large-en")
+    # Updated default embedding model to v1.5
+    model = SentenceTransformer("BAAI/bge-large-en-v1.5")
     embeddings = model.encode(texts, batch_size=16, normalize_embeddings=True)
     return np.asarray(embeddings, dtype="float32")
 
@@ -48,6 +49,8 @@ def build_indexes(chunks: Iterable[Chunk], output_dir: Path) -> Dict[str, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     by_kind: Dict[str, List[Chunk]] = {}
     for chunk in chunks:
+        if not chunk.text:
+            continue
         by_kind.setdefault(chunk.kind, []).append(chunk)
 
     index_paths: Dict[str, Path] = {}
