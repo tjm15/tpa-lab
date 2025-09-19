@@ -59,10 +59,13 @@ ipython_config.py
 # Logs
 *.log
 
-# Local data / downloads (keep structure but ignore contents if desired)
+################################
+# Data / downloads / generated #
+################################
+# Entire downloads directory (fetched source PDFs etc.)
 /downloads/
 
-# Project specific large documents (explicitly ignored)
+# Large reference PDFs explicitly ignored (can be removed if moved under downloads/)
 AA_24-09-03 Local Plan 2024_Final Clean Version _02.pdf
 local_plan_2018_web_version.pdf
 Earl's Court Opportunity Area Placemaking Framework.pdf
@@ -76,7 +79,20 @@ coverage.xml
 # Temporary output folder
 out/
 
-# Allow list (negations) - example: keep seed files
+################################
+# Generated run artifacts       #
+################################
+# Ignore all run outputs (pipelines, indexes, reasoning dumps, evidence images, embeddings)
+/runs/
+# Keep a placeholder so the directory exists
+!runs/.gitkeep
+
+# Allow list - keep seed data explicitly
 !data/seeds/
+
+# Derived assets (images, vector arrays, id lists)
+*.png
+*.npy
+ids.txt
 
 # End of file
