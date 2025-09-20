@@ -25,9 +25,8 @@ retrieval:
   mix_weights: {app: 0.5, policy: 0.5}
 
 llm:
-  # Use the real model via local Ollama instead of dummy echo for quality output.
-  provider: ollama
-  model: gpt-oss:20b  # Ensure you have pulled this:  ollama pull gpt-oss:20b
+  provider: google
+  model: gemini-2.5-pro
 
 output:
   cite_style: inline_ids

@@ -52,11 +52,17 @@ def compose_output(
     retrieved: Iterable[Retrieved],
     template: PromptTemplate,
     llm: BaseLLM | None,
-) -> tuple[str, str]:
+    visual_summaries: List[dict] | None = None,
+) -> tuple[str, str, str]:
     evidence_lines = [
         f"- score={item.score:.3f}: {_format_chunk(item.chunk)}"
         for item in retrieved
     ]
+    if visual_summaries:
+        for vis in visual_summaries:
+            evidence_lines.append(
+                f"- [VIS:{Path(vis['path']).stem}] {vis['summary']}"
+            )
     evidence_block = "\n".join(evidence_lines)
 
     policies = [item for item in retrieved if item.chunk.kind == "policy"]
@@ -82,6 +88,10 @@ def compose_output(
             doc_intro += f"- {item.chunk.text.strip()} [POL:{Path(item.chunk.path).stem}_p{item.chunk.page}]\n"
     else:
         doc_intro += "- Additional policy evidence required. [POL:MISSING]\n"
+    if visual_summaries:
+        doc_intro += "### Visual Summaries\n"
+        for vis in visual_summaries:
+            doc_intro += f"- {vis['summary']} [VIS:{Path(vis['path']).stem}]\n"
     doc_intro += "### Finding\n"
     if policies:
         doc_intro += (

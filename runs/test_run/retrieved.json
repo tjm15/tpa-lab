@@ -2,7 +2,7 @@
   {
     "id": "POL:sample_policy_p1",
     "kind": "policy",
-    "score": 0.24618297815322876,
+    "score": 0.18463723361492157,
     "path": "/home/tjm/code/tpa-lab/tests/data/policy/sample_policy.pdf",
     "page": 1
   },
@@ -23,7 +23,7 @@
   {
     "id": "APP:sample_app_2_p1",
     "kind": "app",
-    "score": 0.06622661650180817,
+    "score": 0.0,
     "path": "/home/tjm/code/tpa-lab/tests/data/app/sample_app_2.pdf",
     "page": 1
   }

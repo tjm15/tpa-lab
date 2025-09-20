@@ -95,4 +95,6 @@ out/
 *.npy
 ids.txt
 
+*.zip
+
 # End of file

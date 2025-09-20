@@ -15,6 +15,7 @@ from .pdf_ingest import ingest_pdfs
 from .datasets import discover_corpora
 from .embed import build_indexes
 from .retrieve import retrieve
+from .multimodal import summarise_visuals
 from .rerank import rerank
 from .verify import verify_run
 from .package import package_run
@@ -121,7 +122,13 @@ def report(
     template = PromptTemplate.from_yaml(template_path)
 
     llm = get_llm(cfg.llm.provider, cfg.llm.model)
-    markdown, prompt_text, completion_text = compose_output(section, retrieved, template, llm=llm)
+    # Summarise visuals (visual chunks are already mixed in retrieval; we filter)
+    visual_chunks = [r for r in retrieved if r.chunk.kind == "visual"]
+    visual_summaries = summarise_visuals(visual_chunks)
+
+    markdown, prompt_text, completion_text = compose_output(
+        section, retrieved, template, llm=llm, visual_summaries=visual_summaries
+    )
 
     prompt_file = run_dir / "prompt.txt"
     save_prompt(prompt_file, prompt_text)

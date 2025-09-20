@@ -63,6 +63,33 @@ output:
 
 Set `llm.provider` to `ollama` to invoke a local `gpt-oss:20b` model (recommended for real runs). For automated tests or offline smoke checks you can set `provider=dummy` to skip the heavy call, but production runs should use Ollama. Embeddings default to `BAAI/bge-large-en-v1.5`; if the model cannot be loaded, we fall back to a hash encoder and log the downgrade. Enabling `index.ocr_fallback: true` will attempt OCR (Tesseract + Pillow) when PyMuPDF returns empty text so scanned PDFs aren’t dropped. Visual chunks are handed to `gemma3:27b` via Ollama for multimodal commentary, so ensure that model is pulled locally.
 
+### Using Google Gemini 2.5 Pro (Text + Vision)
+
+You can switch the LLM backend to Google Gemini by installing the optional dependency and setting an API key:
+
+```bash
+export GOOGLE_API_KEY=AIza... # obtain from https://aistudio.google.com
+pip install google-genai tenacity  # already listed in pyproject; ensure installed
+```
+
+Config snippet:
+
+```yaml
+llm:
+  provider: google
+  model: gemini-2.5-pro   # default if omitted
+```
+
+Gemini is multimodal. The pipeline will automatically:
+
+- Use Gemini for the main section drafting (`complete`).
+- Generate per-page visual summaries using the same model (set env `TPA_LLM_PROVIDER=google`).
+- Append visual summaries to the evidence block and markdown output (`### Visual Summaries`).
+
+Disable vision calls with `TPA_DISABLE_VISION=1` (text-only mode). To override the model used for vision summaries (still Gemini-capable) set `TPA_GEMINI_VISION_MODEL`, otherwise it defaults to `gemini-2.5-pro`.
+
+If the `google-genai` library or API key are missing, the code falls back to the Ollama vision pathway and logs a warning. Vertex AI usage can be enabled in future; currently only the Developer API key path is wired.
+
 ## Tests
 
 Two pytest suites ship with the repo:
