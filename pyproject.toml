@@ -17,6 +17,7 @@ dependencies = [
     "httpx",
     "sentence-transformers",
     "rich>=13.0.0",
+    # Gemini (google-genai) + retry support
     "google-genai>=0.3.0",
     "tenacity>=8.2.3",
 ]

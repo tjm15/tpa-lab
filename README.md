@@ -63,32 +63,27 @@ output:
 
 Set `llm.provider` to `ollama` to invoke a local `gpt-oss:20b` model (recommended for real runs). For automated tests or offline smoke checks you can set `provider=dummy` to skip the heavy call, but production runs should use Ollama. Embeddings default to `BAAI/bge-large-en-v1.5`; if the model cannot be loaded, we fall back to a hash encoder and log the downgrade. Enabling `index.ocr_fallback: true` will attempt OCR (Tesseract + Pillow) when PyMuPDF returns empty text so scanned PDFs aren’t dropped. Visual chunks are handed to `gemma3:27b` via Ollama for multimodal commentary, so ensure that model is pulled locally.
 
-### Using Google Gemini 2.5 Pro (Text + Vision)
+### Using Google Gemini 2.5 Pro (optional cloud backend)
 
-You can switch the LLM backend to Google Gemini by installing the optional dependency and setting an API key:
+You can switch to Google’s Gemini 2.5 Pro for both text drafting and multimodal (image) understanding:
 
-```bash
-export GOOGLE_API_KEY=AIza... # obtain from https://aistudio.google.com
-pip install google-genai tenacity  # already listed in pyproject; ensure installed
-```
+1. Install deps (already in `pyproject.toml`): `google-genai`, `tenacity`.
+2. Export your API key:
+  ```bash
+  export GOOGLE_API_KEY=your_key_here
+  # or: export GEMINI_API_KEY=your_key_here
+  ```
+3. In your config:
+  ```yaml
+  llm:
+    provider: google
+    model: gemini-2.5-pro   # auto-normalised to models/gemini-2.5-pro
+  ```
+4. (Optional) Set `TPA_LLM_PROVIDER=google` to route vision summaries through Gemini instead of local Ollama.
 
-Config snippet:
+When `provider: google` is active the pipeline uses the Gemini SDK (`google-genai`) to call the `gemini-2.5-pro` model. Vision chunks (page snapshots) are summarised via Gemini’s multimodal endpoint and injected as additional evidence lines (tagged `[VIS:...]`) so the main completion can reason over visual context. If the SDK or key are missing the run raises a clear error (or vision falls back to local model if only vision path fails). Set `TPA_DISABLE_VISION=1` to skip image analysis.
 
-```yaml
-llm:
-  provider: google
-  model: gemini-2.5-pro   # default if omitted
-```
-
-Gemini is multimodal. The pipeline will automatically:
-
-- Use Gemini for the main section drafting (`complete`).
-- Generate per-page visual summaries using the same model (set env `TPA_LLM_PROVIDER=google`).
-- Append visual summaries to the evidence block and markdown output (`### Visual Summaries`).
-
-Disable vision calls with `TPA_DISABLE_VISION=1` (text-only mode). To override the model used for vision summaries (still Gemini-capable) set `TPA_GEMINI_VISION_MODEL`, otherwise it defaults to `gemini-2.5-pro`.
-
-If the `google-genai` library or API key are missing, the code falls back to the Ollama vision pathway and logs a warning. Vertex AI usage can be enabled in future; currently only the Developer API key path is wired.
+Future: streaming and long-context (1M token) support can be added by swapping to the SDK stream API; comments in `GoogleGeminiClient` show the extension point.
 
 ## Tests
 

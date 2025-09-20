@@ -13,10 +13,11 @@ retrieval:
 llm:
   provider: dummy
   model: gpt-oss:20b
-# To use Google Gemini instead (ensure GOOGLE_API_KEY is set):
+# To use Google Gemini 2.5 Pro (multimodal):
 # llm:
 #   provider: google
-#   model: gemini-2.5-pro
+#   model: gemini-2.5-pro   # default if omitted
+# export GOOGLE_API_KEY=your_key  # or GEMINI_API_KEY
 output:
   cite_style: inline_ids
   save_zip_of_pages: true

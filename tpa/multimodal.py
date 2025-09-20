@@ -20,30 +20,29 @@ _VIS_PROMPT = (
 def summarise_visuals(visual_chunks: Iterable[Retrieved], model_name: str = "gemma3:27b") -> List[dict]:
     if os.getenv("TPA_DISABLE_VISION") == "1":
         return []
-
-    provider = os.getenv("TPA_LLM_PROVIDER", "ollama")  # allow override without full config passthrough
+    # Allow environment override for which backend to use for vision summarisation.
+    provider = os.getenv("TPA_LLM_PROVIDER", "ollama")
 
     async def _run() -> List[dict]:
-        # Decide backend
-        if provider == "google":
+        use_google = provider.lower() == "google"
+        if use_google:
             try:
-                vision_client = GoogleGeminiClient(model=os.getenv("TPA_GEMINI_VISION_MODEL", "gemini-2.5-pro"))
-                use_google = True
+                # Allow alternative vision model override (defaults to same core model).
+                model_override = os.getenv("TPA_GEMINI_VISION_MODEL") or os.getenv("TPA_VISION_MODEL") or "gemini-2.5-pro"
+                vision_client: object = GoogleGeminiClient(model=model_override)
             except Exception as exc:  # pragma: no cover
                 log("vision", warning="google_init_failed", detail=str(exc))
                 vision_client = OllamaVision(model=model_name)
                 use_google = False
         else:
             vision_client = OllamaVision(model=model_name)
-            use_google = False
-
         summaries: List[dict] = []
         for item in visual_chunks:
             asset_path = Path(item.chunk.metadata.get("asset", ""))
             if not asset_path.exists():
                 continue
             try:
-                if provider == "google" and use_google:
+                if use_google and isinstance(vision_client, GoogleGeminiClient):  # type: ignore[arg-type]
                     summary = await vision_client.analyse_image(_VIS_PROMPT, asset_path)  # type: ignore[attr-defined]
                 else:
                     summary = await vision_client.analyse(_VIS_PROMPT, asset_path)  # type: ignore[attr-defined]
