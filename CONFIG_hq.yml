@@ -10,7 +10,7 @@ index:
   input_dirs:
     - ./downloads/policies
     - ./downloads/earls-court-20250917-074746
-  ocr_fallback: false   # Enable only if many scanned PDFs AND tesseract is installed.
+  ocr_fallback: true   # Enable only if many scanned PDFs AND tesseract is installed.
 
 retrieval:
   # Wider initial recall – higher candidate pool for reranker / weighting.
