@@ -14,17 +14,48 @@ index:
 
 retrieval:
   # Number of top application (app) document chunks to surface.
-  k_app: 6
+  k_app: 8
   # Number of top policy chunks to surface.
-  k_policy: 6
-  # Adversarial (reserved, leave 0 unless experimenting with challenge examples).
-  k_adversarial: 0
+  k_policy: 10
+  # Adversarial candidates introduce challenging policy paragraphs automatically.
+  k_adversarial: 4
   # Maximum combined candidates considered before weighting & filtering.
-  max_candidates: 120
+  max_candidates: 160
   # Use cross-encoder reranker (set true if you extend rerank.py to load one).
   use_reranker: false
   # Mixing weights between application evidence vs policy evidence.
-  mix_weights: {app: 0.55, policy: 0.45}
+  mix_weights:
+    applicant_case: 0.5
+    policy: 0.4
+    technical_report: 0.35
+    consultee: 0.3
+    objection: 0.25
+    visual: 0.2
+  recipes:
+    default:
+      applicant_case: {k: 5, weight: 0.3}
+      policy: {k: 8, weight: 0.35}
+      technical_report: {k: 4, weight: 0.2}
+      consultee: {k: 3, weight: 0.1}
+      objection: {k: 3, weight: 0.05}
+    transport:
+      applicant_case: {k: 6, weight: 0.3}
+      policy: {k: 10, weight: 0.3}
+      technical_report: {k: 5, weight: 0.2}
+      consultee: {k: 3, weight: 0.15, required: ["highway", "tfl"]}
+      objection: {k: 3, weight: 0.05}
+    heritage:
+      applicant_case: {k: 5, weight: 0.25}
+      policy: {k: 10, weight: 0.4}
+      technical_report: {k: 4, weight: 0.15}
+      consultee: {k: 4, weight: 0.15, required: ["conservation"]}
+      objection: {k: 2, weight: 0.05}
+    design:
+      applicant_case: {k: 6, weight: 0.3}
+      policy: {k: 8, weight: 0.3}
+      technical_report: {k: 5, weight: 0.2}
+      visual: {k: 4, weight: 0.15}
+      objection: {k: 3, weight: 0.05}
 
 llm:
   # Provider options implemented: dummy, ollama (extend as needed).
@@ -37,6 +68,12 @@ output:
   cite_style: inline_ids
   # Export zip of the source page images & text assets for evidence traceability.
   save_zip_of_pages: true
+
+style:
+  orientation: pro_delivery
+  num_drafts: 3
+  persona_variants: [policy_led, consultee_led, applicant_skeptical]
+  combine_mode: judge_random
 
 # --- Guidance ---
 # 1. For initial ingestion, the exact PDFs under the listed directories are chunked.

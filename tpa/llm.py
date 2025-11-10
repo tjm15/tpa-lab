@@ -60,7 +60,7 @@ class OllamaLocal(BaseLLM):
 
 
 class OllamaVision:
-    def __init__(self, model: str = "gemma3:27b", base_url: str = "http://localhost:11434") -> None:
+    def __init__(self, model: str = "qwen3-vl:30b", base_url: str = "http://localhost:11434") -> None:
         self.model = model
         self.client = httpx.AsyncClient(base_url=base_url)
 

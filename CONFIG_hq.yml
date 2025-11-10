@@ -16,13 +16,44 @@ retrieval:
   # Wider initial recall – higher candidate pool for reranker / weighting.
   max_candidates: 400
   # More top chunks per class – improves evidence richness at cost of verbosity.
-  k_app: 18
-  k_policy: 18
-  k_adversarial: 0
+  k_app: 20
+  k_policy: 20
+  k_adversarial: 6
   # Activate cross-encoder reranker (sentence-transformers must be installed; already in deps).
   use_reranker: true
   # Balanced weighting so policy evidence is not under-emphasised.
-  mix_weights: {app: 0.5, policy: 0.5}
+  mix_weights:
+    applicant_case: 0.45
+    policy: 0.35
+    technical_report: 0.35
+    consultee: 0.3
+    objection: 0.25
+    visual: 0.2
+  recipes:
+    default:
+      applicant_case: {k: 8, weight: 0.3}
+      policy: {k: 12, weight: 0.35}
+      technical_report: {k: 6, weight: 0.2}
+      consultee: {k: 4, weight: 0.1}
+      objection: {k: 4, weight: 0.05}
+    transport:
+      applicant_case: {k: 10, weight: 0.3}
+      policy: {k: 12, weight: 0.3}
+      technical_report: {k: 6, weight: 0.2}
+      consultee: {k: 4, weight: 0.15, required: ["highway", "tfl"]}
+      objection: {k: 4, weight: 0.05}
+    heritage:
+      applicant_case: {k: 8, weight: 0.25}
+      policy: {k: 14, weight: 0.4}
+      technical_report: {k: 5, weight: 0.15}
+      consultee: {k: 5, weight: 0.15, required: ["conservation"]}
+      objection: {k: 4, weight: 0.05}
+    design:
+      applicant_case: {k: 10, weight: 0.3}
+      policy: {k: 12, weight: 0.3}
+      technical_report: {k: 6, weight: 0.2}
+      visual: {k: 6, weight: 0.15}
+      objection: {k: 4, weight: 0.05}
 
 llm:
   provider: google
@@ -31,6 +62,12 @@ llm:
 output:
   cite_style: inline_ids
   save_zip_of_pages: true
+
+style:
+  orientation: pro_delivery
+  num_drafts: 5
+  persona_variants: [policy_led, consultee_led, applicant_skeptical, balanced]
+  combine_mode: judge_random
 
 # Notes:
 # - Rebuilding index not strictly required after changing ONLY retrieval.* settings, but

@@ -6,6 +6,7 @@ from typing import Dict, Iterable, List, Tuple
 
 import numpy as np
 import os
+import httpx
 
 from .chunk_store import Chunk
 from .logging import log
@@ -34,15 +35,39 @@ def _bge_encode(texts: List[str]) -> np.ndarray:
     return np.asarray(embeddings, dtype="float32")
 
 
+def _qwen_encode(texts: List[str]) -> np.ndarray:
+    base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    model_name = os.getenv("TPA_EMBED_MODEL", "qwen3-embedding:8b")
+    embeddings: List[List[float]] = []
+    with httpx.Client(base_url=base_url, timeout=None) as client:
+        for text in texts:
+            resp = client.post(
+                "/api/embeddings",
+                json={"model": model_name, "prompt": text},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if "embedding" not in data:
+                raise RuntimeError(f"Ollama embeddings response missing 'embedding' key for model {model_name}")
+            embeddings.append(data["embedding"])
+    return np.asarray(embeddings, dtype="float32")
+
+
 def _encode(texts: List[str]) -> Tuple[np.ndarray, str]:
     mode_override = os.getenv("TPA_EMBED_MODE")
     if mode_override == "hash":
         return _hash_encode(texts), "hash"
-    try:
+    if mode_override == "bge":
         return _bge_encode(texts), "bge"
-    except Exception as exc:  # pragma: no cover - fallback for offline envs
-        log("embed", warning="Falling back to hash encoder", detail=str(exc))
-        return _hash_encode(texts), "hash"
+    if mode_override == "qwen":
+        return _qwen_encode(texts), "qwen"
+    try:
+        return _qwen_encode(texts), "qwen"
+    except Exception as exc:
+        raise RuntimeError(
+            "Failed to encode embeddings via qwen3-embedding:8b. "
+            "Ensure Ollama is running the model or set TPA_EMBED_MODE=hash for offline mode."
+        ) from exc
 
 
 def build_indexes(chunks: Iterable[Chunk], output_dir: Path) -> Dict[str, Path]:
@@ -78,6 +103,8 @@ def load_index(kind_dir: Path) -> Tuple[np.ndarray, List[str], str]:
 def encode_query(query: str, mode: str) -> np.ndarray:
     if mode == "bge":
         return _bge_encode([query])
+    if mode == "qwen":
+        return _qwen_encode([query])
     vector = _hash_encode([query])
     return vector
 

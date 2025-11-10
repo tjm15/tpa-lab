@@ -2,71 +2,30 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import List
 
 from .retrieve import Retrieved
 from .logging import log
 from .multimodal import summarise_visuals
+from .claims import ClaimRecord, extract_claims, match_claims_to_policies
 
 
-@dataclass
-class ClaimRecord:
-    claim_id: str
-    text: str
-    source: str
-    matched_policies: List[str]
-    conflicts: List[str]
-
-
-def _extract_claims(app_chunks: Iterable[Retrieved]) -> List[ClaimRecord]:
-    records: List[ClaimRecord] = []
-    claim_counter = 0
-    for item in app_chunks:
-        text = item.chunk.text or ""
-        sentences = re.split(r"(?<=[.!?])\s+", text)
-        for sentence in sentences:
-            if len(sentence) < 30:
-                continue
-            if re.search(r"(applicant|proposes|will|seeks|states|deliver)", sentence, re.IGNORECASE):
-                claim_counter += 1
-                claim_id = f"CLAIM_{item.chunk.id.replace(':', '_')}_{claim_counter}"
-                records.append(
-                    ClaimRecord(
-                        claim_id=claim_id,
-                        text=sentence.strip(),
-                        source=item.chunk.id,
-                        matched_policies=[],
-                        conflicts=[],
-                    )
-                )
-    return records
-
-
-def _match_policies(claims: List[ClaimRecord], policy_chunks: Iterable[Retrieved]) -> None:
-    policy_index: Dict[str, Retrieved] = {pol.chunk.id: pol for pol in policy_chunks}
-    for claim in claims:
-        claim_words = set(re.findall(r"[a-zA-Z]+", claim.text.lower()))
-        for policy in policy_index.values():
-            policy_text = policy.chunk.text or ""
-            policy_words = set(re.findall(r"[a-zA-Z]+", policy_text.lower()))
-            overlap = claim_words & policy_words
-            if len(overlap) >= 5:
-                claim.matched_policies.append(policy.chunk.id)
-                if re.search(r"must not|shall not|prohibited", policy_text, re.IGNORECASE):
-                    claim.conflicts.append(policy.chunk.id)
-
-
-def build_reasoning(section: str, retrieved: List[Retrieved], run_dir: Path) -> Path:
+def build_reasoning(
+    section: str,
+    retrieved: List[Retrieved],
+    run_dir: Path,
+    diagnostics: Dict | None = None,
+    visual_summaries: List[dict] | None = None,
+) -> Path:
     app_items = [item for item in retrieved if item.chunk.kind == "app"]
     policy_items = [item for item in retrieved if item.chunk.kind == "policy"]
     visual_items = [item for item in retrieved if item.chunk.kind == "visual"]
 
-    claims = _extract_claims(app_items)
-    _match_policies(claims, policy_items)
-    visual_summaries = summarise_visuals(visual_items) if visual_items else []
+    claims = extract_claims(app_items)
+    match_claims_to_policies(claims, policy_items)
+    if visual_summaries is None:
+        visual_summaries = summarise_visuals(visual_items) if visual_items else []
 
     reasoning = {
         "section": section,
@@ -101,6 +60,8 @@ def build_reasoning(section: str, retrieved: List[Retrieved], run_dir: Path) -> 
             for item in retrieved
         ],
     }
+    if diagnostics:
+        reasoning["stage_diagnostics"] = diagnostics
 
     reasoning_path = run_dir / "reasoning.json"
     reasoning_path.write_text(json.dumps(reasoning, indent=2), encoding="utf-8")

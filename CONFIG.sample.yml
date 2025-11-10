@@ -4,12 +4,37 @@ index:
     - ./tests/data/policy
   ocr_fallback: false
 retrieval:
-  k_app: 3
-  k_policy: 3
-  k_adversarial: 0
-  max_candidates: 60
+  k_app: 4
+  k_policy: 6
+  k_adversarial: 2
+  max_candidates: 80
   use_reranker: false
-  mix_weights: {app: 0.5, policy: 0.5}
+  mix_weights:
+    applicant_case: 0.45
+    policy: 0.4
+    technical_report: 0.35
+    consultee: 0.3
+    objection: 0.25
+    visual: 0.2
+  recipes:
+    default:
+      applicant_case: {k: 4, weight: 0.3}
+      policy: {k: 6, weight: 0.35}
+      technical_report: {k: 3, weight: 0.2}
+      consultee: {k: 2, weight: 0.1}
+      objection: {k: 2, weight: 0.05}
+    transport:
+      applicant_case: {k: 5, weight: 0.3}
+      policy: {k: 8, weight: 0.3}
+      technical_report: {k: 4, weight: 0.2}
+      consultee: {k: 3, weight: 0.15, required: ["highway", "tfl"]}
+      objection: {k: 3, weight: 0.05}
+    heritage:
+      applicant_case: {k: 4, weight: 0.25}
+      policy: {k: 8, weight: 0.4}
+      technical_report: {k: 3, weight: 0.15}
+      consultee: {k: 3, weight: 0.15, required: ["conservation"]}
+      objection: {k: 2, weight: 0.05}
 llm:
   provider: dummy
   model: gpt-oss:20b
@@ -21,3 +46,9 @@ llm:
 output:
   cite_style: inline_ids
   save_zip_of_pages: true
+
+style:
+  orientation: pro_delivery  # pro_delivery | balanced | neutral
+  num_drafts: 3
+  persona_variants: [policy_led, consultee_led, applicant_skeptical]
+  combine_mode: judge_random  # judge_random | best_of

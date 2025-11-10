@@ -4,8 +4,8 @@
 
 ### Critical: Material Considerations Engine
 
-- [ ] **Implement Material Considerations (MC) as First-Class Objects**
-  - [ ] Define MC schema in new `tpa/material_considerations.py`:
+- [x] **Implement Material Considerations (MC) as First-Class Objects**
+  - [x] Define MC schema in new `tpa/material_considerations.py`:
     ```python
     @dataclass
     class MaterialConsideration:
@@ -20,37 +20,37 @@
         weight: str  # 'significant', 'moderate', 'limited', 'neutral'
         recommendation: str  # 'acceptable', 'unacceptable', 'requires_mitigation'
     ```
-  - [ ] Auto-detect active MCs from document corpus
-  - [ ] Build MC-specific retrieval plans per topic
-  - [ ] Track MC dependencies and conflicts
+  - [x] Auto-detect active MCs from document corpus
+  - [x] Build MC-specific retrieval plans per topic
+  - [x] Track MC dependencies and conflicts
 
-- [ ] **MC Assessment Agent (per topic)**
-  - [ ] Phase 1: Extract policy hierarchy (NPPF → Local Plan → SPD)
-  - [ ] Phase 2: Extract applicant's case from DAS/statements
-  - [ ] Phase 3: Stratified retrieval by source type:
+- [x] **MC Assessment Agent (per topic)**
+  - [x] Phase 1: Extract policy hierarchy (NPPF → Local Plan → SPD)
+  - [x] Phase 2: Extract applicant's case from DAS/statements
+  - [x] Phase 3: Stratified retrieval by source type:
     - applicant_case: {k: 5, weight: 0.3}
     - policy: {k: 8, weight: 0.3}
     - technical_report: {k: 5, weight: 0.2}
     - consultee: {k: 3, weight: 0.15}
     - objection/support: {k: 5, weight: 0.05}
-  - [ ] Phase 4: Evaluate compliance with policy tests
-  - [ ] Phase 5: Assess harm/benefit with weighting
-  - [ ] Phase 6: Generate structured assessment + prose section
+  - [x] Phase 4: Evaluate compliance with policy tests
+  - [x] Phase 5: Assess harm/benefit with weighting
+  - [x] Phase 6: Generate structured assessment + prose section
 
-- [ ] **Recursive Section Agent with Multi-Stage Critique**
-  - [ ] **Stage 1: Policy Framework Extraction**
+- [x] **Recursive Section Agent with Multi-Stage Critique**
+  - [x] **Stage 1: Policy Framework Extraction**
     - Prompt: "List all applicable policies with hierarchy and requirements"
     - Output: Structured policy tree with thresholds/tests
     - Store in reasoning.json
-  - [ ] **Stage 2: Claim-Evidence-Finding (CEF) Table**
+  - [x] **Stage 2: Claim-Evidence-Finding (CEF) Table**
     - Prompt: "Extract applicant claims; for each, identify supporting and contradicting evidence"
     - Include VLM analysis for visual claims (design quality, townscape impact)
     - Flag under-evidenced or contested claims
-  - [ ] **Stage 3: Draft Generation**
+  - [x] **Stage 3: Draft Generation**
     - Prompt: "Write officer assessment using CEF table + policy framework"
     - Style guide: "Cautious, evidenced, uses 'would' not 'will', acknowledges uncertainty"
     - Output: Section draft with inline citations [APP:x] [POL:y] [VIS:z]
-  - [ ] **Stage 4: Critic Agent**
+  - [x] **Stage 4: Critic Agent**
     - Check: Every claim has policy/evidence citation
     - Check: No contradictions with other sections
     - Check: All mandatory policies addressed
@@ -58,30 +58,30 @@
     - Check: Numbers/facts match source documents
     - Check: Consultee responses properly referenced
     - Output: List of issues with paragraph references
-  - [ ] **Stage 5: Repair Agent**
+  - [x] **Stage 5: Repair Agent**
     - Regenerate only flagged paragraphs
     - Maintain consistency with rest of section
     - Iterate until critic passes or max rounds (3-5)
   - [ ] Log all critique points and repairs in reasoning.json
 
-- [ ] **Planning Balance Accumulator**
-  - [ ] Each MC assessment outputs: {harms: [], benefits: [], neutral: [], weight: str}
-  - [ ] Central agent tracks cumulative balance across all sections
-  - [ ] Apply NPPF balancing tests (para 11, 202, 203) as applicable
-  - [ ] Identify tipping points (e.g., heritage harm vs housing benefit)
-  - [ ] Flag where "very special circumstances" or s38(6) departure needed
-  - [ ] Generate final recommendation with explicit reasoning chain
+- [x] **Planning Balance Accumulator**
+  - [x] Each MC assessment outputs: {harms: [], benefits: [], neutral: [], weight: str}
+  - [x] Central agent tracks cumulative balance across all sections
+  - [x] Apply NPPF balancing tests (para 11, 202, 203) as applicable
+  - [x] Identify tipping points (e.g., heritage harm vs housing benefit)
+  - [x] Flag where "very special circumstances" or s38(6) departure needed
+  - [x] Generate final recommendation with explicit reasoning chain
 
-- [ ] **MC Conflict Resolver**
-  - [ ] Detect when MCs conflict (heritage harm vs housing need)
-  - [ ] Apply policy hierarchy and statutory duties
-  - [ ] Generate explicit trade-off reasoning
-  - [ ] Flag where member discretion/judgment required
-  - [ ] Cross-check consistency across sections
+- [x] **MC Conflict Resolver**
+  - [x] Detect when MCs conflict (heritage harm vs housing need)
+  - [x] Apply policy hierarchy and statutory duties
+  - [x] Generate explicit trade-off reasoning
+  - [x] Flag where member discretion/judgment required
+  - [x] Cross-check consistency across sections
 
 ### Model Migration & Core Fixes
 
-- [ ] **Switch to qwen3-VL:30b** for vision/multimodal processing (verified working on Ollama)
+- [x] **Switch to qwen3-VL:30b** for vision/multimodal processing (verified working on Ollama)
   - Replace `gemma3:27b` references in code
   - Update multimodal.py to use qwen3-VL:30b
   - **Enable VLM for subjective visual assessments**:
@@ -93,16 +93,16 @@
   - Test vision chunk integration end-to-end
   - Ensure `[VIS:...]` citations appear reliably in final output
 
-- [ ] **Switch to qwen3-embedding:8b** for embeddings (via Ollama)
+- [x] **Switch to qwen3-embedding:8b** for embeddings (via Ollama)
   - Replace `BAAI/bge-large-en-v1.5` / sentence-transformers
   - Update embed.py to call Ollama embedding API
   - Ensure no silent fallback to hash encoder
 
-- [ ] **Debug embedding fallback** - ensure model loads or fail fast (no silent degradation)
+- [x] **Debug embedding fallback** - ensure model loads or fail fast (no silent degradation)
   - Remove hash-based fallback or make it explicit error
   - Add startup validation that embedding model is accessible
 
-- [ ] **Fix vision chunk integration** - VIS tags aren't reliable
+- [x] **Fix vision chunk integration** - VIS tags aren't reliable
   - Verify `[VIS:...]` citations appear in final output
   - Test with/without `TPA_DISABLE_VISION=1`
   - Ensure vision evidence is properly weighted in retrieval
@@ -113,17 +113,17 @@
     - CGIs/photomontages (visual impact)
     - Site photos (existing character, amenity)
 
-- [ ] **Test source mixing enforcement** - verify 70% cap works
+- [x] **Test source mixing enforcement** - verify 70% cap works
   - Add unit test for mix_weights enforcement
   - Check that policy vs app balance is maintained
   - Log warnings when mixing rules are violated
 
-- [ ] **Enable adversarial retrieval by default** (`k_adversarial: 2-4`)
+- [x] **Enable adversarial retrieval by default** (`k_adversarial: 2-4`)
   - Update CONFIG.sample.yml to set k_adversarial > 0
   - Test that contradictory evidence is actually retrieved
   - Document adversarial retrieval behavior in README
 
-- [ ] **Add claim extraction for verification check #3**
+- [x] **Add claim extraction for verification check #3**
   - Implement claim harvester in verify.py
   - Detect "the applicant states", quoted spans, benefit claims
   - Pair each claim with adjacent evidence citations
@@ -243,13 +243,13 @@
 ## Comprehensive Testing & Metrics
 
 - [ ] **Unit tests for all core modules**
-  - [ ] test_embed.py - embedding generation, index building, Ollama integration
-  - [ ] test_retrieve.py - source mixing, adversarial retrieval, reranking, stratified retrieval
-  - [ ] test_multimodal.py - vision chunk processing, VLM integration (qwen3-VL:30b)
-  - [ ] test_author.py - CEF table generation, citation formatting, multi-stage drafting
+  - [x] test_embed.py - embedding generation, index building, Ollama integration
+  - [x] test_retrieve.py - source mixing, adversarial retrieval, reranking, stratified retrieval
+  - [x] test_multimodal.py - vision chunk processing, VLM integration (qwen3-VL:30b)
+  - [x] test_author.py - CEF table generation, citation formatting, multi-stage drafting
   - [ ] test_verify.py - expand with all 5 checks + edge cases + claim extraction
-  - [ ] test_package.py - manifest generation, evidence zipping
-  - [ ] test_material_considerations.py - MC detection, assessment agent, conflict resolution
+  - [x] test_package.py - manifest generation, evidence zipping
+  - [x] test_material_considerations.py - MC detection, assessment agent, conflict resolution
 
 - [ ] **Integration tests**
   - [ ] End-to-end with real Ollama models (qwen3-VL:30b, qwen3-embedding:8b)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -23,10 +23,16 @@ class RetrievalConfig:
     max_candidates: int = 60
     use_reranker: bool = False
     mix_weights: Dict[str, float] = None
+    recipes: Dict[str, Dict[str, Dict[str, object]]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.mix_weights is None:
             self.mix_weights = {"app": 0.5, "policy": 0.5}
+        # normalise recipe keys to lower-case topic identifiers
+        normalised: Dict[str, Dict[str, Dict[str, object]]] = {}
+        for key, recipe in (self.recipes or {}).items():
+            normalised[key.lower()] = recipe
+        self.recipes = normalised
 
 
 @dataclass
@@ -42,11 +48,25 @@ class OutputConfig:
 
 
 @dataclass
+class StyleConfig:
+    orientation: str = "pro_delivery"  # pro_delivery | balanced | neutral
+    num_drafts: int = 3
+    persona_variants: list[str] = field(default_factory=lambda: [
+        "policy_led",
+        "consultee_led",
+        "applicant_skeptical",
+    ])
+    combine_mode: str = "judge_random"  # judge_random | best_of
+    seed: int | None = None
+
+
+@dataclass
 class Config:
     index: IndexConfig
     retrieval: RetrievalConfig
     llm: LLMConfig
     output: OutputConfig
+    style: StyleConfig
     path: Path
 
     @property
@@ -72,6 +92,13 @@ class Config:
                 "cite_style": self.output.cite_style,
                 "save_zip_of_pages": self.output.save_zip_of_pages,
             },
+            "style": {
+                "orientation": self.style.orientation,
+                "num_drafts": self.style.num_drafts,
+                "persona_variants": self.style.persona_variants,
+                "combine_mode": self.style.combine_mode,
+                "seed": self.style.seed,
+            },
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
         return digest
@@ -86,7 +113,8 @@ def load_config(path: Path) -> Config:
     retrieval_cfg = RetrievalConfig(**data.get("retrieval", {}))
     llm_cfg = LLMConfig(**data.get("llm", {}))
     output_cfg = OutputConfig(**data.get("output", {}))
-    return Config(index=index_cfg, retrieval=retrieval_cfg, llm=llm_cfg, output=output_cfg, path=path)
+    style_cfg = StyleConfig(**data.get("style", {}))
+    return Config(index=index_cfg, retrieval=retrieval_cfg, llm=llm_cfg, output=output_cfg, style=style_cfg, path=path)
 
 
 __all__ = ["Config", "load_config"]

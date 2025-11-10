@@ -16,14 +16,13 @@ def package_run(run_dir: Path) -> Path:
 
     zip_path = run_dir / "package.zip"
     with ZipFile(zip_path, "w") as zf:
-        for key in ["output_md", "retrieved", "prompt", "completion", "reasoning"]:
-            rel = manifest["files"].get(key)
-            if not rel:
+        for key, rel in manifest.get("files", {}).items():
+            if not rel or key == "evidence_dir":
                 continue
             file_path = run_dir / rel
             if file_path.exists():
                 zf.write(file_path, arcname=rel)
-        evidence_dir = manifest["files"].get("evidence_dir")
+        evidence_dir = manifest.get("files", {}).get("evidence_dir")
         if evidence_dir:
             evidence_path = run_dir / evidence_dir
             for file in evidence_path.glob("*"):

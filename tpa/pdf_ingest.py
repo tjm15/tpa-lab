@@ -17,6 +17,27 @@ from .chunk_store import Chunk
 from .config import Config
 from .logging import log
 
+_SOURCE_HINTS = [
+    ("consultee", ["consultee", "consultation", "officer", "TfL", "conservation officer"]),
+    ("technical_report", ["assessment", "technical", "wind", "daylight", "sunlight", "noise study"]),
+    ("objection", ["objection", "objector", "representation", "petition"]),
+    ("support", ["support letter", "supporter", "commend", "endorse"]),
+]
+
+_STATUTORY_CUES = [
+    ("Conservation Officer", ["conservation officer", "heritage officer"]),
+    ("Highways", ["highway authority", "highways officer", "transport for london", "tfl"]),
+    ("Environment Agency", ["environment agency"]),
+]
+
+_VISUAL_TYPE_KEYWORDS = {
+    "map": ["map", "constraints", "context plan"],
+    "diagram": ["diagram", "strategy", "axonometric"],
+    "elevation": ["elevation", "section", "façade"],
+    "cgi": ["cgi", "render", "visual", "photomontage"],
+    "photo": ["photo", "photograph", "existing view"],
+}
+
 
 def _infer_kind(path: Path) -> str:
     parts = {part.lower() for part in path.parts}
@@ -25,6 +46,41 @@ def _infer_kind(path: Path) -> str:
     if any("plan" in part for part in parts):
         return "policy"
     return "app"
+
+
+def _infer_source_type(path: Path, kind: str, text: str) -> str:
+    lowered = text.lower()
+    path_lower = str(path).lower()
+    if kind == "policy":
+        return "policy"
+    for source_type, hints in _SOURCE_HINTS:
+        if any(hint in lowered or hint in path_lower for hint in hints):
+            return source_type
+    if "consultee" in path_lower:
+        return "consultee"
+    if "technical" in path_lower:
+        return "technical_report"
+    if "objection" in path_lower:
+        return "objection"
+    if "support" in path_lower:
+        return "support"
+    return "applicant_case"
+
+
+def _infer_statutory_role(text: str) -> str | None:
+    lowered = text.lower()
+    for role, cues in _STATUTORY_CUES:
+        if any(cue in lowered for cue in cues):
+            return role
+    return None
+
+
+def _infer_visual_type(text: str) -> str:
+    lowered = text.lower()
+    for label, keywords in _VISUAL_TYPE_KEYWORDS.items():
+        if any(keyword in lowered for keyword in keywords):
+            return label
+    return "figure"
 
 
 def ingest_pdfs(config: Config, show_progress: bool = False) -> List[Chunk]:
@@ -90,6 +146,8 @@ def _ingest_single_pdf(pdf_path: Path, config: Config, chunks: List[Chunk]) -> N
             for word in text.split():
                 if word.upper().startswith("POL") or word.upper().startswith("LP"):
                     cross_refs.append(word)
+            source_type = _infer_source_type(pdf_path, kind, text)
+            statutory_role = _infer_statutory_role(text) if source_type == "consultee" else None
             if text:
                 chunk_id = f"{kind[:3].upper()}:{base}_p{page_idx}"
                 hash_value = hashlib.sha256(
@@ -104,11 +162,13 @@ def _ingest_single_pdf(pdf_path: Path, config: Config, chunks: List[Chunk]) -> N
                         text=text,
                         hash=hash_value,
                         metadata={
-                            "type": "text",
-                            "cross_refs": cross_refs,
-                            "ocr_used": ocr_used,
-                        },
-                    )
+                        "type": "text",
+                        "cross_refs": cross_refs,
+                        "ocr_used": ocr_used,
+                        "source_type": source_type,
+                        "statutory_role": statutory_role,
+                    },
+                )
                 )
 
             # Visual placeholder chunk to satisfy hybrid retrieval requirement.
@@ -119,6 +179,7 @@ def _ingest_single_pdf(pdf_path: Path, config: Config, chunks: List[Chunk]) -> N
             pix.save(visual_path)
             visual_id = f"VIS:{base}_p{page_idx}"
             hash_value = hashlib.sha256(str(visual_path).encode("utf-8")).hexdigest()
+            visual_type = _infer_visual_type(text)
             chunks.append(
                 Chunk(
                     id=visual_id,
@@ -131,6 +192,8 @@ def _ingest_single_pdf(pdf_path: Path, config: Config, chunks: List[Chunk]) -> N
                         "type": "visual",
                         "asset": str(visual_path.resolve()),
                         "cross_refs": cross_refs,
+                        "source_type": "visual",
+                        "visual_type": visual_type,
                     },
                 )
             )

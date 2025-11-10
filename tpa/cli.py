@@ -4,11 +4,12 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from dataclasses import asdict
 
 import typer
 
 from .author import PromptTemplate, compose_output, save_prompt
-from .chunk_store import write_chunks
+from .chunk_store import write_chunks, read_chunks
 from .config import Config, load_config
 from .logging import log
 from .pdf_ingest import ingest_pdfs
@@ -21,6 +22,13 @@ from .verify import verify_run
 from .package import package_run
 from .reason import build_reasoning
 from .llm import get_llm
+from .material_considerations import (
+    detect_material_considerations,
+    active_material_considerations,
+    assess_material_consideration,
+)
+from .balance import build_planning_balance, detect_conflicts
+from .topics import TopicDetector
 
 app = typer.Typer(help="Decision-led officer report pipeline")
 
@@ -99,7 +107,7 @@ def report(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     query = f"{section} policy compliance"
-    retrieved = retrieve(query, CHUNKS_PATH, INDEX_DIR, cfg.retrieval)
+    retrieved = retrieve(query, CHUNKS_PATH, INDEX_DIR, cfg.retrieval, section=section, topics=[section])
     retrieved = rerank(retrieved, cfg.retrieval.use_reranker)
     if not retrieved:
         log("retrieve", status="empty", run=run, section=section)
@@ -116,19 +124,76 @@ def report(
     ]
     (run_dir / "retrieved.json").write_text(json.dumps(retrieved_payload, indent=2), encoding="utf-8")
 
+    llm = get_llm(cfg.llm.provider, cfg.llm.model)
+    all_chunks = list(read_chunks(CHUNKS_PATH))
+    topic_detector = TopicDetector(llm if cfg.llm.provider != "dummy" else None)
+    topic_candidates = topic_detector.suggest_topics(all_chunks)
+    topic_map = topic_detector.build_topic_map(all_chunks, topic_candidates)
+    section_topics = topic_detector.rank_topics([item.chunk.id for item in retrieved], topic_map)
+    mc_catalog = detect_material_considerations(all_chunks, topic_map)
+    active_mcs = active_material_considerations(section_topics, mc_catalog)
+    if not active_mcs:
+        active_mcs = active_material_considerations(["general"], mc_catalog)
+    mc_assessments = []
+    mc_payload = []
+    for mc in active_mcs:
+        mc_query = f"{section} {mc.topic} material consideration"
+        mc_retrieved = retrieve(
+            mc_query,
+            CHUNKS_PATH,
+            INDEX_DIR,
+            cfg.retrieval,
+            section=mc.topic,
+            topics=[mc.topic, section],
+        )
+        assessed = assess_material_consideration(mc, mc_retrieved)
+        mc_assessments.append(assessed)
+        mc_payload.append(
+            {
+                "topic": mc.topic,
+                "assessment": asdict(assessed),
+                "retrieved": [
+                    {
+                        "id": item.chunk.id,
+                        "kind": item.chunk.kind,
+                        "score": item.score,
+                        "path": item.chunk.path,
+                        "page": item.chunk.page,
+                    }
+                    for item in mc_retrieved
+                ],
+            }
+        )
+
+    mc_file = run_dir / "material_considerations.json"
+    mc_file.write_text(json.dumps(mc_payload, indent=2), encoding="utf-8")
+    balance_markdown, balance_summary, balance_narrative = build_planning_balance(mc_assessments, llm if cfg.llm.provider != "dummy" else None)
+    balance_md_path = run_dir / "planning_balance.md"
+    balance_md_path.write_text(balance_markdown, encoding="utf-8")
+    balance_json_path = run_dir / "planning_balance.json"
+    balance_json_path.write_text(json.dumps({"summary": balance_summary, "narrative": balance_narrative}, indent=2), encoding="utf-8")
+    mc_conflicts = detect_conflicts(mc_assessments)
+    conflicts_path = run_dir / "mc_conflicts.json"
+    conflicts_path.write_text(json.dumps(mc_conflicts, indent=2), encoding="utf-8")
+
     template_path = Path(__file__).resolve().parent / "prompts" / f"{section}.yaml"
     if not template_path.exists():
         raise FileNotFoundError(f"Prompt template not found for section '{section}'")
     template = PromptTemplate.from_yaml(template_path)
 
-    llm = get_llm(cfg.llm.provider, cfg.llm.model)
     # Summarise visuals (visual chunks are already mixed in retrieval; we filter)
     visual_chunks = [r for r in retrieved if r.chunk.kind == "visual"]
     visual_summaries = summarise_visuals(visual_chunks)
 
-    markdown, prompt_text, completion_text = compose_output(
-        section, retrieved, template, llm=llm, visual_summaries=visual_summaries
+    markdown, prompt_text, completion_text, diagnostics = compose_output(
+        section, retrieved, template, llm=llm, visual_summaries=visual_summaries, style=cfg.style
     )
+    diagnostics["material_considerations"] = [asdict(mc) for mc in mc_assessments]
+    diagnostics["planning_balance"] = balance_summary
+    diagnostics["planning_balance_narrative"] = balance_narrative
+    diagnostics["mc_conflicts"] = mc_conflicts
+    diagnostics["topic_candidates"] = topic_candidates
+    diagnostics["section_topics"] = section_topics
 
     prompt_file = run_dir / "prompt.txt"
     save_prompt(prompt_file, prompt_text)
@@ -137,18 +202,26 @@ def report(
     output_file = run_dir / f"section_{section}.md"
     output_file.write_text(markdown, encoding="utf-8")
 
-    reasoning_path = build_reasoning(section, retrieved, run_dir)
+    reasoning_path = build_reasoning(section, retrieved, run_dir, diagnostics=diagnostics, visual_summaries=visual_summaries)
 
     if cfg.output.save_zip_of_pages:
         from .evidence import export_pages
 
         export_pages(retrieved, run_dir / "evidence")
 
+    embed_mode = os.getenv("TPA_EMBED_MODE")
+    if embed_mode == "hash":
+        embedding_label = "hash-encoder"
+    elif embed_mode == "bge":
+        embedding_label = "BAAI/bge-large-en-v1.5"
+    else:
+        embedding_label = os.getenv("TPA_EMBED_MODEL", "qwen3-embedding:8b")
+
     manifest = {
         "run": run,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "models": {
-            "embedding": "BAAI/bge-large-en-v1.5",
+            "embedding": embedding_label,
             "reranker": None,
             "llm": cfg.llm.model,
         },
@@ -169,6 +242,10 @@ def report(
             "completion": completion_file.name,
             "reasoning": reasoning_path.name,
             "evidence_dir": "evidence" if cfg.output.save_zip_of_pages else None,
+            "material_considerations": mc_file.name,
+            "planning_balance_md": balance_md_path.name,
+            "planning_balance_json": balance_json_path.name,
+            "mc_conflicts": conflicts_path.name,
         },
         "output": {
             "cite_style": cfg.output.cite_style,

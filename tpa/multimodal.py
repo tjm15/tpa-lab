@@ -11,17 +11,18 @@ from .retrieve import Retrieved
 
 
 _VIS_PROMPT = (
-    "You are a UK planning officer reviewing a planning figure. Describe the key transport, "
-    "design, massing, or environmental signals relevant to policy compliance. Be concise and "
-    "cite potential issues or strengths."
+    "You are a UK planning officer reviewing a {visual_type} extracted from the evidence base. "
+    "Describe the key transport, design, massing, amenity, or environmental signals relevant to "
+    "policy compliance. Highlight potential harms/benefits and reference any annotations or data."
 )
 
 
-def summarise_visuals(visual_chunks: Iterable[Retrieved], model_name: str = "gemma3:27b") -> List[dict]:
+def summarise_visuals(visual_chunks: Iterable[Retrieved], model_name: str | None = None) -> List[dict]:
     if os.getenv("TPA_DISABLE_VISION") == "1":
         return []
     # Allow environment override for which backend to use for vision summarisation.
-    provider = os.getenv("TPA_LLM_PROVIDER", "ollama")
+    vision_model = model_name or os.getenv("TPA_VISION_MODEL") or "qwen3-vl:30b"
+    provider = os.getenv("TPA_VISION_PROVIDER") or os.getenv("TPA_LLM_PROVIDER", "ollama")
 
     async def _run() -> List[dict]:
         use_google = provider.lower() == "google"
@@ -32,20 +33,22 @@ def summarise_visuals(visual_chunks: Iterable[Retrieved], model_name: str = "gem
                 vision_client: object = GoogleGeminiClient(model=model_override)
             except Exception as exc:  # pragma: no cover
                 log("vision", warning="google_init_failed", detail=str(exc))
-                vision_client = OllamaVision(model=model_name)
+                vision_client = OllamaVision(model=vision_model)
                 use_google = False
         else:
-            vision_client = OllamaVision(model=model_name)
+            vision_client = OllamaVision(model=vision_model)
         summaries: List[dict] = []
         for item in visual_chunks:
             asset_path = Path(item.chunk.metadata.get("asset", ""))
             if not asset_path.exists():
                 continue
+            visual_kind = item.chunk.metadata.get("visual_type", "figure")
+            prompt = _VIS_PROMPT.format(visual_type=visual_kind.replace("_", " "))
             try:
                 if use_google and isinstance(vision_client, GoogleGeminiClient):  # type: ignore[arg-type]
-                    summary = await vision_client.analyse_image(_VIS_PROMPT, asset_path)  # type: ignore[attr-defined]
+                    summary = await vision_client.analyse_image(prompt, asset_path)  # type: ignore[attr-defined]
                 else:
-                    summary = await vision_client.analyse(_VIS_PROMPT, asset_path)  # type: ignore[attr-defined]
+                    summary = await vision_client.analyse(prompt, asset_path)  # type: ignore[attr-defined]
             except Exception as exc:  # pragma: no cover
                 log(
                     "vision",
@@ -59,6 +62,7 @@ def summarise_visuals(visual_chunks: Iterable[Retrieved], model_name: str = "gem
                     "id": item.chunk.id,
                     "path": str(asset_path),
                     "summary": summary.strip() if summary else "MISSING VISION SUMMARY",
+                    "visual_type": visual_kind,
                 }
             )
         return summaries

@@ -14,8 +14,12 @@ def _read_markdown(run_dir: Path) -> str:
     return md_files[0].read_text(encoding="utf-8")
 
 
+def _paragraphs(markdown: str) -> List[str]:
+    return [p.strip() for p in markdown.split("\n\n") if p.strip() and not p.strip().startswith("#")]
+
+
 def check_policy_linkage(markdown: str) -> str | None:
-    paragraphs = [p.strip() for p in markdown.split("\n\n") if p.strip() and not p.strip().startswith("#")]
+    paragraphs = _paragraphs(markdown)
     for para in paragraphs:
         if "[POL:" not in para:
             return "Paragraph missing policy citation"
@@ -35,12 +39,15 @@ def check_source_diversity(markdown: str) -> str | None:
 
 
 def check_claim_evidence(markdown: str) -> str | None:
-    lines = [line.strip() for line in markdown.splitlines() if line.strip()]
-    for idx, line in enumerate(lines):
-        if "[APP:" in line:
-            window = " ".join(lines[idx: idx + 2])
-            if "[POL:" not in window:
-                return "Applicant claim without nearby policy reference"
+    paragraphs = _paragraphs(markdown)
+    for idx, paragraph in enumerate(paragraphs):
+        lower = paragraph.lower()
+        has_claim = "[APP:" in paragraph or "applicant" in lower or '"' in paragraph
+        if not has_claim:
+            continue
+        window = " ".join(paragraphs[idx: idx + 2])
+        if "[POL:" not in window:
+            return "Applicant claim without nearby policy reference"
     return None
 
 
